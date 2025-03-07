@@ -2,8 +2,6 @@ package info.openrocket.core.aerodynamics;
 
 import static info.openrocket.core.util.MathUtil.pow2;
 
-import java.util.*;
-
 import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.rocketcomponent.AxialStage;
@@ -28,8 +26,18 @@ import info.openrocket.core.rocketcomponent.SymmetricComponent;
 import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.MathUtil;
+import info.openrocket.core.util.ModID;
 import info.openrocket.core.util.PolyInterpolator;
 import info.openrocket.core.util.Reflection;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 
 /**
  * An aerodynamic calculator that uses the extended Barrowman method to
@@ -48,6 +56,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	private double cacheDiameter = -1;
 	private double cacheLength = -1;
 
+	private final double stallAngle = 17.5 * Math.PI / 180;
+	private double stallMargin;
+	
 	public BarrowmanCalculator() {
 		
 	}
@@ -57,7 +68,20 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	public BarrowmanCalculator newInstance() {
 		return new BarrowmanCalculator();
 	}
-	
+
+	/**
+	 * Determine whether calculations are suspect because we are stalling
+	 *
+	 * @return               whether we are stalling, and the margin
+	 *                       between our AOA and a stall
+	 *                       If the return is positive we aren't;
+	 *                       If it's negative we are.
+	 *             
+	 */
+	@Override
+	public double getStallMargin() {
+		return stallMargin;
+	}
 	
 	/**
 	 * Calculate the CP according to the extended Barrowman method.
@@ -164,6 +188,18 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		for (RocketComponent child : comp.getChildren()) {
 			// Ignore inactive stages
 			if (child instanceof AxialStage && !configuration.isStageActive(child.getStageNumber())) {
+				// Check if there are child stages that are active and need to be calculated
+				for (AxialStage childStage : child.getTopLevelChildStages()) {
+					if (configuration.isStageActive(childStage.getStageNumber())) {
+						// forces particular to each component
+						AerodynamicForces childForces = calculateForceAnalysis(configuration, conds, childStage, instances,
+								eachForces, assemblyForces, warnings);
+
+						if (childForces != null) {
+							aggregateForces.merge(childForces);
+						}
+					}
+				}
 				continue;
 			}
 			
@@ -207,6 +243,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		total.setCm(total.getCm() - total.getPitchDampingMoment());
 		total.setCyaw(total.getCyaw() - total.getYawDampingMoment());
 
+		// How far are we from stalling?
+		stallMargin = stallAngle - conditions.getAOA();
+		
 		return total;
 	}
 
@@ -250,9 +289,6 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		if (warnings == null)
 			warnings = ignoreWarningSet;
 
-		if (conditions.getAOA() > 17.5 * Math.PI / 180)
-			warnings.add(new Warning.LargeAOA(conditions.getAOA()));
-
 		if (calcMap == null)
 			buildCalcMap(configuration);
 
@@ -284,13 +320,8 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	public void checkGeometry(FlightConfiguration configuration, final RocketComponent treeRoot, WarningSet warnings) {
 		Queue<RocketComponent> queue = new LinkedList<>();
 
-		for (RocketComponent child : treeRoot.getChildren()) {
-			// Ignore inactive stages
-			if (child instanceof AxialStage && !configuration.isStageActive(child.getStageNumber())) {
-				continue;
-			}
-			queue.add(child);
-		}
+		// Add the (active) child stages
+		addDirectChildStagesToQueue(configuration, queue, treeRoot);
 
 		SymmetricComponent prevComp = null;
 		if ((treeRoot instanceof ComponentAssembly) &&
@@ -304,13 +335,8 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			if ((comp instanceof SymmetricComponent) ||
 					((comp instanceof AxialStage) &&
 							!(comp instanceof ParallelStage))) {
-				for (RocketComponent child : comp.getChildren()) {
-					// Ignore inactive stages
-					if (child instanceof AxialStage && !configuration.isStageActive(child.getStageNumber())) {
-						continue;
-					}
-					queue.add(child);
-				}
+				// Add the (active) child stages
+				addDirectChildStagesToQueue(configuration, queue, comp);
 
 				if (comp instanceof SymmetricComponent) {
 					SymmetricComponent sym = (SymmetricComponent) comp;
@@ -334,7 +360,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 						// Check for phantom tube
 						if ((sym.getLength() < MathUtil.EPSILON) ||
 							(sym.getAftRadius() < MathUtil.EPSILON && sym.getForeRadius() < MathUtil.EPSILON)) {
-							warnings.add(Warning.ZERO_VOLUME_BODY, sym.getName());
+							warnings.add(Warning.ZERO_VOLUME_BODY, sym);
 						}
 
 						// check for gap or overlap in airframe. We'll use a textual comparison to see
@@ -413,6 +439,29 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 					(comp instanceof ParallelStage)) {
 				checkGeometry(configuration, comp, warnings);
 			}
+		}
+	}
+
+	/**
+	 * Add child stages to the queue. Only active stages are added. If a child stages is inactive, but it does have
+	 * active child stages, these are added to the queue.
+	 * @param configuration Rocket configuration
+	 * @param queue Queue to add stages to
+	 * @param comp Component to add stages from
+	 */
+	private void addDirectChildStagesToQueue(FlightConfiguration configuration, Queue<RocketComponent> queue, RocketComponent comp) {
+		for (RocketComponent child : comp.getChildren()) {
+			// Ignore inactive stages
+			if (child instanceof AxialStage && !configuration.isStageActive(child.getStageNumber())) {
+				// Check if there are child stages that are active and need to be calculated
+				for (AxialStage childStage : child.getTopLevelChildStages()) {
+					if (configuration.isStageActive(childStage.getStageNumber())) {
+						queue.add(childStage);
+					}
+				}
+				continue;
+			}
+			queue.add(child);
 		}
 	}
 
@@ -516,6 +565,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			}
 
 			if (forceMap != null) {
+				if (forceMap.get(c) == null) {
+					System.out.println("No forces for " + c);
+				}
 				forceMap.get(c).setFrictionCD(componentFrictionCD);
 			}
 		}
@@ -526,9 +578,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		
 		// Correct body data in map
 		if (forceMap != null) {
-			for (RocketComponent c : forceMap.keySet()) {
-				if (c instanceof SymmetricComponent) {
-					forceMap.get(c).setFrictionCD(forceMap.get(c).getFrictionCD() * correction);
+			for (Map.Entry<RocketComponent, AerodynamicForces> entry : forceMap.entrySet()) {
+				if (entry.getKey() instanceof SymmetricComponent) {
+					entry.getValue().setFrictionCD(entry.getValue().getFrictionCD() * correction);
 				}
 			}
 		}
@@ -563,7 +615,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		if (configuration.getRocket().isPerfectFinish()) {
 
 			// Assume partial laminar layer. Roughness-limitation is checked later.
-			if (Re < 1e4) {
+			if (Re < 1.0e4) {
 				// Too low, constant
 				Cf = 1.33e-2;
 			} else if (Re < 5.39e5) {
@@ -578,18 +630,18 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 			
 			if (mach < 1.1) {
 				// Below Re=1e6 no correction
-				if (Re > 1e6) {
-					if (Re < 3e6) {
-						c1 = 1 - 0.1 * pow2(mach) * (Re - 1e6) / 2e6; // transition to turbulent
+				if (Re > 1.0e6) {
+					if (Re < 3.0e6) {
+						c1 = 1 - 0.1 * pow2(mach) * (Re - 1.0e6) / 2.0e6; // transition to turbulent
 					} else {
 						c1 = 1 - 0.1 * pow2(mach);
 					}
 				}
 			}
 			if (mach > 0.9) {
-				if (Re > 1e6) {
-					if (Re < 3e6) {
-						c2 = 1 + (1.0 / Math.pow(1 + 0.045 * pow2(mach), 0.25) - 1) * (Re - 1e6) / 2e6;
+				if (Re > 1.0e6) {
+					if (Re < 3.0e6) {
+						c2 = 1 + (1.0 / Math.pow(1 + 0.045 * pow2(mach), 0.25) - 1) * (Re - 1.0e6) / 2.0e6;
 					} else {
 						c2 = 1.0 / Math.pow(1 + 0.045 * pow2(mach), 0.25);
 					}
@@ -609,7 +661,7 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 		} else {
 
 			// Assume fully turbulent. Roughness-limitation is checked later.
-			if (Re < 1e4) {
+			if (Re < 1.0e4) {
 				// Too low, constant
 				Cf = 1.48e-2;
 			} else {
@@ -1030,9 +1082,9 @@ public class BarrowmanCalculator extends AbstractAerodynamicCalculator {
 	}
 	
 	@Override
-	public int getModID() {
+	public ModID getModID() {
 		// Only cached data is stored, return constant mod ID
-		return 0;
+		return ModID.ZERO;
 	}
 	
 }

@@ -10,8 +10,10 @@ import com.formdev.flatlaf.ui.FlatBorder;
 import com.formdev.flatlaf.ui.FlatMarginBorder;
 import com.jthemedetecor.OsThemeDetector;
 import info.openrocket.core.arch.SystemInfo;
+import info.openrocket.core.document.Simulation.Status;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.startup.Application;
+import info.openrocket.swing.gui.util.GUIUtil;
 import info.openrocket.swing.gui.util.Icons;
 import info.openrocket.swing.gui.util.SwingPreferences;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -27,6 +29,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.font.TextAttribute;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Enumeration;
@@ -38,8 +41,35 @@ public class UITheme {
     private static final Translator trans = Application.getTranslator();
     private static final Logger log = LoggerFactory.getLogger(UITheme.class);
 
+    private static final Map<String, Float> fontOffsets = new HashMap<>();
+
+    static {
+        fontOffsets.put("MenuBar.font", 1.0f);
+        fontOffsets.put("Tree.font", -1.0f);
+        fontOffsets.put("Slider.font", -2.0f);
+        fontOffsets.put("TableHeader.font", -1.0f);
+        fontOffsets.put("ColorChooser.font", -1.0f);
+        fontOffsets.put("Menu.acceleratorFont", 1.0f);
+        fontOffsets.put("InternalFrame.optionDialogTitleFont", 1.0f);
+        fontOffsets.put("InternalFrame.paletteTitleFont", 1.0f);
+        fontOffsets.put("MenuItem.font", 1.0f);
+        fontOffsets.put("PopupMenu.font", 1.0f);
+        fontOffsets.put("MenuItem.acceleratorFont", 1.0f);
+        fontOffsets.put("RadioButtonMenuItem.font", 1.0f);
+        fontOffsets.put("Table.font", -1.0f);
+        fontOffsets.put("InternalFrame.titleFont", 1.0f);
+        fontOffsets.put("List.font", -1.0f);
+        fontOffsets.put("RadioButtonMenuItem.acceleratorFont", 1.0f);
+        fontOffsets.put("CheckBoxMenuItem.acceleratorFont", 1.0f);
+        fontOffsets.put("Menu.font", 1.0f);
+        fontOffsets.put("TabbedPane.smallFont", -2.0f);
+        fontOffsets.put("CheckBoxMenuItem.font", 1.0f);
+        fontOffsets.put("ToolTip.font", -2.0f);
+    }
+
 
     // TODO: replace a bunch of this with the FlatLaf properties files, see https://www.formdev.com/flatlaf/properties-files
+    // For FlatLaf theme properties, check out swing/src/main/resources/themes
 
     public interface Theme {
         void applyTheme();
@@ -85,12 +115,16 @@ public class UITheme {
 
         Color getComponentTreeBackgroundColor();
         Color getComponentTreeForegroundColor();
+        Color getVisibilityHiddenForegroundColor();
 
         Color getFinPointGridMajorLineColor();
         Color getFinPointGridMinorLineColor();
         Color getFinPointPointColor();
         Color getFinPointSelectedPointColor();
         Color getFinPointBodyLineColor();
+        Color getFinPointSnapHighlightColor();
+
+		Color getStatusColor(Status status);
 
         Icon getMassOverrideIcon();
         Icon getMassOverrideSubcomponentIcon();
@@ -98,6 +132,9 @@ public class UITheme {
         Icon getCGOverrideSubcomponentIcon();
         Icon getCDOverrideIcon();
         Icon getCDOverrideSubcomponentIcon();
+
+        Icon getVisibilityHiddenIcon();
+        Icon getVisibilityShowingIcon();
 
         Border getBorder();
         Border getMarginBorder();
@@ -159,7 +196,7 @@ public class UITheme {
     }
 
     public static boolean isLightTheme(Theme theme) {
-        if (theme == Themes.DARK) {
+        if (theme == Themes.DARK || theme == Themes.DARK_CONTRAST) {
             return false;
         } else if (theme == Themes.LIGHT) {
             return true;
@@ -177,7 +214,7 @@ public class UITheme {
 
         return false;
     }
-
+	
     public enum Themes implements Theme {
         /*
         Standard light theme
@@ -370,6 +407,11 @@ public class UITheme {
             }
 
             @Override
+            public Color getVisibilityHiddenForegroundColor() {
+                return UIManager.getColor("Tree.textForeground.hidden.light");
+            }
+
+            @Override
             public Color getFinPointGridMajorLineColor() {
                 return new Color( 0, 0, 255, 80);
             }
@@ -392,6 +434,11 @@ public class UITheme {
             @Override
             public Color getFinPointBodyLineColor() {
                 return Color.BLACK;
+            }
+
+            @Override
+            public Color getFinPointSnapHighlightColor() {
+                return Color.RED;
             }
 
             @Override
@@ -425,6 +472,16 @@ public class UITheme {
             }
 
             @Override
+            public Icon getVisibilityHiddenIcon() {
+                return Icons.COMPONENT_HIDDEN_LIGHT;
+            }
+
+            @Override
+            public Icon getVisibilityShowingIcon() {
+                return Icons.COMPONENT_SHOWING_LIGHT;
+            }
+
+            @Override
             public Border getBorder() {
                 return new FlatBorder();
             }
@@ -437,14 +494,14 @@ public class UITheme {
             @Override
             public Border getUnitSelectorBorder() {
                 return new CompoundBorder(
-                        new LineBorder(new Color(0f, 0f, 0f, 0.08f), 1),
+                        new LineBorder(new Color(0.0f, 0.0f, 0.0f, 0.08f), 1),
                         new EmptyBorder(1, 1, 1, 1));
             }
 
             @Override
             public Border getUnitSelectorFocusBorder() {
                 return new CompoundBorder(
-                        new LineBorder(new Color(0f, 0f, 0f, 0.6f)),
+                        new LineBorder(new Color(0.0f, 0.0f, 0.0f, 0.6f)),
                         new EmptyBorder(1, 1, 1, 1));
             }
 
@@ -756,6 +813,11 @@ public class UITheme {
             }
 
             @Override
+            public Color getVisibilityHiddenForegroundColor() {
+                return UIManager.getColor("Tree.textForeground.hidden.dark");
+            }
+
+            @Override
             public Color getFinPointGridMajorLineColor() {
                 return new Color(135, 135, 199, 197);
             }
@@ -778,6 +840,11 @@ public class UITheme {
             @Override
             public Color getFinPointBodyLineColor() {
                 return Color.WHITE;
+            }
+
+            @Override
+            public Color getFinPointSnapHighlightColor() {
+                return new Color(255, 58, 58, 255);
             }
 
             @Override
@@ -811,6 +878,16 @@ public class UITheme {
             }
 
             @Override
+            public Icon getVisibilityHiddenIcon() {
+                return Icons.COMPONENT_HIDDEN_DARK;
+            }
+
+            @Override
+            public Icon getVisibilityShowingIcon() {
+                return Icons.COMPONENT_SHOWING_DARK;
+            }
+
+            @Override
             public Border getBorder() {
                 return new FlatBorder();
             }
@@ -823,14 +900,14 @@ public class UITheme {
             @Override
             public Border getUnitSelectorBorder() {
                 return new CompoundBorder(
-                        new LineBorder(new Color(1f, 1f, 1f, 0.08f), 1),
+                        new LineBorder(new Color(1.0f, 1.0f, 1.0f, 0.08f), 1),
                         new EmptyBorder(1, 1, 1, 1));
             }
 
             @Override
             public Border getUnitSelectorFocusBorder() {
                 return new CompoundBorder(
-                        new LineBorder(new Color(1f, 1f, 1f, 0.6f)),
+                        new LineBorder(new Color(1.0f, 1.0f, 1.0f, 0.6f)),
                         new EmptyBorder(1, 1, 1, 1));
             }
 
@@ -1006,7 +1083,7 @@ public class UITheme {
 
             @Override
             public Color getDisabledTextColor() {
-                return new Color(128, 128, 128);
+                return new Color(128, 128, 128, 223);
             }
 
 
@@ -1142,6 +1219,11 @@ public class UITheme {
             }
 
             @Override
+            public Color getVisibilityHiddenForegroundColor() {
+                return UIManager.getColor("Tree.textForeground.hidden.dark");
+            }
+
+            @Override
             public Color getFinPointGridMajorLineColor() {
                 return new Color(164, 164, 224, 197);
             }
@@ -1164,6 +1246,11 @@ public class UITheme {
             @Override
             public Color getFinPointBodyLineColor() {
                 return Color.WHITE;
+            }
+
+            @Override
+            public Color getFinPointSnapHighlightColor() {
+                return new Color(241, 77, 77, 255);
             }
 
             @Override
@@ -1197,6 +1284,16 @@ public class UITheme {
             }
 
             @Override
+            public Icon getVisibilityHiddenIcon() {
+                return Icons.COMPONENT_HIDDEN_DARK;
+            }
+
+            @Override
+            public Icon getVisibilityShowingIcon() {
+                return Icons.COMPONENT_SHOWING_DARK;
+            }
+
+            @Override
             public Border getBorder() {
                 return new FlatBorder();
             }
@@ -1209,7 +1306,7 @@ public class UITheme {
             @Override
             public Border getUnitSelectorBorder() {
                 return new CompoundBorder(
-                        new LineBorder(new Color(.9f, 0.9f, 0.9f, 0.15f), 1),
+                        new LineBorder(new Color(0.9f, 0.9f, 0.9f, 0.15f), 1),
                         new EmptyBorder(1, 1, 1, 1));
             }
 
@@ -1547,6 +1644,11 @@ public class UITheme {
             }
 
             @Override
+            public Color getVisibilityHiddenForegroundColor() {
+                return getCurrentTheme().getVisibilityHiddenForegroundColor();
+            }
+
+            @Override
             public Color getFinPointGridMajorLineColor() {
                 return getCurrentTheme().getFinPointGridMajorLineColor();
             }
@@ -1568,6 +1670,11 @@ public class UITheme {
 
             @Override
             public Color getFinPointBodyLineColor() {
+                return getCurrentTheme().getFinPointBodyLineColor();
+            }
+
+            @Override
+            public Color getFinPointSnapHighlightColor() {
                 return getCurrentTheme().getFinPointBodyLineColor();
             }
 
@@ -1599,6 +1706,16 @@ public class UITheme {
             @Override
             public Icon getCDOverrideSubcomponentIcon() {
                 return getCurrentTheme().getCDOverrideSubcomponentIcon();
+            }
+
+            @Override
+            public Icon getVisibilityHiddenIcon() {
+                return getCurrentTheme().getVisibilityHiddenIcon();
+            }
+
+            @Override
+            public Icon getVisibilityShowingIcon() {
+                return getCurrentTheme().getVisibilityHiddenIcon();
             }
 
             @Override
@@ -1738,10 +1855,25 @@ public class UITheme {
             public String getComponentIconMassTracker() {
                 return getCurrentTheme().getComponentIconMassTracker();
             }
-        }
+        };
+
+		@Override
+		public Color getStatusColor(Status status) {
+			switch (status) {
+			case ABORTED:
+				return getErrorColor();
+				
+			case OUTDATED:
+				return getWarningColor();
+				
+			default:
+				return getTextColor();
+			}
+		}
     }
 
     private static void preApplyTheme() {
+        final SwingPreferences prefs = (SwingPreferences) Application.getPreferences();
         FlatAnimatedLafChange.showSnapshot();
 
         FlatLaf.registerCustomDefaultsSource("themes");
@@ -1750,24 +1882,32 @@ public class UITheme {
     private static void postApplyTheme(Theme theme) {
         final SwingPreferences prefs = (SwingPreferences) Application.getPreferences();
 
-        // TODO: For some reason, FlatLaf does not take the correct values from the properties file
-        UIManager.put("OR.ScrollPane.borderColor", theme.getBorderColor());
-
         // Clear custom default font when switching to non-FlatLaf LaF
-        if (!(UIManager.getLookAndFeel() instanceof FlatLaf)) {
-            UIManager.put("defaultFont", null);
-        }
+        //if (!(UIManager.getLookAndFeel() instanceof FlatLaf)) {
+        //    UIManager.put("defaultFont", null);
+        //}
 
-        setGlobalFontSize(prefs.getUIFontSize());
+        // Set the UI scale factor
+        String uiScale = String.valueOf(((SwingPreferences) Application.getPreferences()).getUIScale());
+        log.info("Setting UI scale factor to {}", uiScale);
+        System.setProperty("flatlaf.uiScale", uiScale);
 
-        System.setProperty("flatlaf.uiScale.enabled", "true");
-        System.setProperty("flatlaf.uiScale", String.valueOf(prefs.getUIFontSize() / 12));
+        // Load custom fonts
+        log.info("Loading custom fonts");
+        GUIUtil.loadCustomFonts();
+
+        // Set the global font to
+        int fontSize = prefs.getUIFontSize();
+        String fontStyle = prefs.getUIFontStyle();
+        double fontTracking = prefs.getUIFontTracking();
+        log.info("Setting global font to {} {} {}", fontSize, fontStyle, fontTracking);
+        setGlobalFont(fontStyle, fontSize, (float) fontTracking);
 
         // After applying the theme settings, notify listeners
         Theme.notifyUIThemeChangeListeners();
 
         // Update all components
-        FlatLaf.updateUI();     // TODO: has no effect (UI doesn't change)
+        FlatLaf.updateUI();     // TODO: has no effect (UI doesn't change) --> Nevermind, you just have to call "Theme.applyTheme" after you change the theme in preferneces
         FlatAnimatedLafChange.hideSnapshotWithAnimation();
     }
 
@@ -1784,42 +1924,35 @@ public class UITheme {
         }
     }
 
-    private static void setGlobalFontSize(int size) {
-        // Some fonts have different sizes for different components, so we need to adjust them
-        final Map<String, Float> fontOffsets = new HashMap<>();
-        fontOffsets.put("MenuBar.font", 1f);
-        fontOffsets.put("Tree.font", -1f);
-        fontOffsets.put("Slider.font", -2f);
-        fontOffsets.put("TableHeader.font", -1f);
-        fontOffsets.put("ColorChooser.font", -1f);
-        fontOffsets.put("Menu.acceleratorFont", 1f);
-        fontOffsets.put("InternalFrame.optionDialogTitleFont", 1f);
-        fontOffsets.put("InternalFrame.paletteTitleFont", 1f);
-        fontOffsets.put("MenuItem.font", 1f);
-        fontOffsets.put("PopupMenu.font", 1f);
-        fontOffsets.put("MenuItem.acceleratorFont", 1f);
-        fontOffsets.put("RadioButtonMenuItem.font", 1f);
-        fontOffsets.put("Table.font", -1f);
-        //fontOffsets.put("IconButton.font", -2f);      // The default doesn't really look nice, we want the normal font size instead
-        fontOffsets.put("InternalFrame.titleFont", 1f);
-        fontOffsets.put("List.font", -1f);
-        fontOffsets.put("RadioButtonMenuItem.acceleratorFont", 1f);
-        fontOffsets.put("CheckBoxMenuItem.acceleratorFont", 1f);
-        fontOffsets.put("Menu.font", 1f);
-        fontOffsets.put("TabbedPane.smallFont", -2f);
-        fontOffsets.put("CheckBoxMenuItem.font", 1f);
-        fontOffsets.put("ToolTip.font", -2f);
-
+    private static void setGlobalFont(String fontStyle, int size, float letterSpacing) {
         // Iterate over all keys in the UIManager defaults and set the font
         for (Enumeration<Object> keys = UIManager.getDefaults().keys(); keys.hasMoreElements();) {
             Object key = keys.nextElement();
             Object value = UIManager.get(key);
-            if (value instanceof Font newFont) {
-				float offset = fontOffsets.getOrDefault(key.toString(), 0f);
-                newFont = newFont.deriveFont(Integer.valueOf(size).floatValue() + offset);
+            if (value instanceof Font) {
+                float offset = 0.0f;
+                // Check if this key has a size offset
+                if (key.toString().endsWith(".font")) {
+                    String fontKey = key.toString();
+                    // Reuse the existing fontOffsets map logic here
+                    offset = fontOffsets.getOrDefault(fontKey, 0.0f);
+                }
+                // Create a font with the letter spacing attribute
+                Map<TextAttribute, Object> attributes = new HashMap<>();
+                attributes.put(TextAttribute.FAMILY, fontStyle);
+                attributes.put(TextAttribute.SIZE, size + offset);
+                attributes.put(TextAttribute.TRACKING, letterSpacing);
+
+                Font newFont = Font.getFont(attributes);
                 UIManager.put(key, newFont);
             }
         }
-    }
 
+        // Set the default font
+        Map<TextAttribute, Object> attributes = new HashMap<>();
+        attributes.put(TextAttribute.FAMILY, fontStyle);
+        attributes.put(TextAttribute.SIZE, size);
+        attributes.put(TextAttribute.TRACKING, letterSpacing);
+        UIManager.put("defaultFont", Font.getFont(attributes));
+    }
 }

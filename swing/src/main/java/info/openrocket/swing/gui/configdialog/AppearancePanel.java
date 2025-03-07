@@ -4,6 +4,8 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.EventObject;
@@ -17,6 +19,7 @@ import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JComboBox;
 import javax.swing.JSeparator;
+import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.JOptionPane;
@@ -27,6 +30,7 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
 import info.openrocket.core.util.Invalidatable;
+import info.openrocket.swing.gui.widgets.PlaceholderTextField;
 import net.miginfocom.swing.MigLayout;
 import info.openrocket.core.appearance.Appearance;
 import info.openrocket.core.appearance.AppearanceBuilder;
@@ -64,7 +68,6 @@ import info.openrocket.swing.gui.util.ColorConversion;
 import info.openrocket.swing.gui.util.EditDecalHelper;
 import info.openrocket.swing.gui.util.EditDecalHelper.EditDecalHelperException;
 import info.openrocket.swing.gui.util.SwingPreferences;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
 
 public class AppearancePanel extends JPanel implements Invalidatable, InvalidatingWidget {
 	private static final long serialVersionUID = 2709187552673202019L;
@@ -104,12 +107,12 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		Unit no_unit = new GeneralUnit(1, "", 2) {
 			@Override
 			public double getNextValue(double value) {
-				return value + .1;
+				return value + 0.1;
 			}
 
 			@Override
 			public double getPreviousValue(double value) {
-				return value - .1;
+				return value - 0.1;
 			}
 
 		};
@@ -127,7 +130,7 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		}
 	}
 
-	private class ColorActionListener implements ActionListener {
+	private abstract class ColorActionListener {
 		private final String valueName;
 		private final Object o;
 
@@ -140,23 +143,35 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		 Changes the color of the selected component to <color>
 		 @param color: color to change the component to
 		 */
-		private void changeComponentColor(Color color) {
+		protected void setComponentColor(Color color) {
 			try {
-				final Method setMethod = o.getClass().getMethod(
-						"set" + valueName, ORColor.class);
+				final Method setMethod = o.getClass().getMethod("set" + valueName, ORColor.class);
 				if (color == null)
 					return;
 				try {
-					setMethod.invoke(o, ColorConversion
-							.fromAwtColor(color));
+					setMethod.invoke(o, ColorConversion.fromAwtColor(color));
 				} catch (Throwable e1) {
-					Application.getExceptionHandler()
-							.handleErrorCondition(e1);
+					Application.getExceptionHandler().handleErrorCondition(e1);
 				}
 			} catch (Throwable e1) {
 				Application.getExceptionHandler().handleErrorCondition(e1);
 			}
+		}
 
+		protected ORColor getComponentColor() {
+			try {
+				final Method getMethod = o.getClass().getMethod("get" + valueName);
+				return (ORColor) getMethod.invoke(o);
+			} catch (Throwable e1) {
+				Application.getExceptionHandler().handleErrorCondition(e1);
+				return null;
+			}
+		}
+	}
+
+	private class ColorButtonActionListener extends ColorActionListener implements ActionListener {
+		ColorButtonActionListener(final Object o, final String valueName) {
+			super(o, valueName);
 		}
 
 		/**
@@ -167,10 +182,7 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		@Override
 		public void actionPerformed(ActionEvent colorClickEvent) {
 			try {
-				final Method getMethod = o.getClass().getMethod(
-						"get" + valueName);
-				ORColor c = (ORColor) getMethod
-						.invoke(o);
+				ORColor c = getComponentColor();
 
 				Color awtColor = ColorConversion.toAwtColor(c);
 				colorChooser.setColor(awtColor);
@@ -181,25 +193,25 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 				ChangeListener changeListener = new ChangeListener() {
 					public void stateChanged(ChangeEvent changeEvent) {
 						Color selected = colorChooser.getColor();
-						changeComponentColor(selected);
+						setComponentColor(selected);
 					}
 				};
 				model.addChangeListener(changeListener);
 
 				JDialog d = JColorChooser.createDialog(AppearancePanel.this,
-						trans.get("RocketCompCfg.lbl.Choosecolor"), true,
+						trans.get("RocketCompCfg.lbl.Choosecolor"), false,
 						colorChooser,
 						new ActionListener() {
 							@Override
 							public void actionPerformed(ActionEvent okEvent) {
-								changeComponentColor(colorChooser.getColor());
+								setComponentColor(colorChooser.getColor());
 								// Unbind listener to avoid the current component's appearance to change with other components
 								model.removeChangeListener(changeListener);
 							}
 						}, new ActionListener() {
 							@Override
 							public void actionPerformed(ActionEvent cancelEvent) {
-								changeComponentColor(awtColor);
+								setComponentColor(awtColor);
 								// Unbind listener to avoid the current component's appearance to change with other components
 								model.removeChangeListener(changeListener);
 							}
@@ -207,6 +219,41 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 				d.setVisible(true);
 			} catch (Throwable e1) {
 				Application.getExceptionHandler().handleErrorCondition(e1);
+			}
+		}
+	}
+
+	private class HexColorListener extends ColorActionListener implements ActionListener, FocusListener {
+		public HexColorListener(final Object o, final String valueName) {
+			super(o, valueName);
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			updateColorFromHex((JTextField) e.getSource());
+		}
+
+		@Override
+		public void focusLost(FocusEvent e) {
+			updateColorFromHex((JTextField) e.getSource());
+		}
+
+		@Override
+		public void focusGained(FocusEvent e) {
+			// Do nothing
+		}
+
+		private void updateColorFromHex(JTextField field) {
+			String hex = field.getText();
+			try {
+				ORColor color = ColorConversion.fromHexColor(hex);
+				if (color == null) {
+					field.setText(ColorConversion.toHexColor(getComponentColor()));
+					return;
+				}
+				setComponentColor(ColorConversion.toAwtColor(color));
+			} catch (IllegalArgumentException ex) {
+				field.setText(ColorConversion.toHexColor(getComponentColor()));
 			}
 		}
 	}
@@ -270,12 +317,19 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		if (figureColor == null) {
 			figureColor = ((SwingPreferences) Application.getPreferences()).getDefaultColor(c.getClass());
 		}
-		final JButton figureColorButton = new SelectColorButton(
+		final JButton figureColorButton = new JButton(
 				new ColorIcon(figureColor));
+		PlaceholderTextField figureColorHexField = new PlaceholderTextField(7);
+		figureColorHexField.setPlaceholder(trans.get("AppearanceCfg.placeholder.HexColor"));
+		figureColorHexField.setToolTipText(trans.get("AppearanceCfg.ttip.HexColor"));
+		figureColorHexField.setText(ColorConversion.toHexColor(c.getColor()));
 
 		ab.addChangeListener(new StateChangeListener() {
 			@Override
-			public void stateChanged(EventObject e) { figureColorButton.setIcon(new ColorIcon(c.getColor())); }
+			public void stateChanged(EventObject e) {
+				figureColorButton.setIcon(new ColorIcon(c.getColor()));
+				figureColorHexField.setText(ColorConversion.toHexColor(c.getColor()));
+			}
 		});
 
 		c.addChangeListener(new StateChangeListener() {
@@ -286,11 +340,14 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 					col = ((SwingPreferences) Application.getPreferences()).getDefaultColor(c.getClass());
 				}
 				figureColorButton.setIcon(new ColorIcon(col));
+				figureColorHexField.setText(ColorConversion.toHexColor(col));
 			}
 		});
 
-		figureColorButton
-				.addActionListener(new ColorActionListener(c, "Color"));
+		figureColorButton.addActionListener(new ColorButtonActionListener(c, "Color"));
+		HexColorListener colorHexListener = new HexColorListener(c, "Color");
+		figureColorHexField.addActionListener(colorHexListener);
+		figureColorHexField.addFocusListener(colorHexListener);
 
 		BooleanModel fDefault = new BooleanModel(c.getColor() == null);
 		register(fDefault);
@@ -320,7 +377,7 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 			add(colorDefault);
 			order.add(colorDefault);
 
-			saveAsDefault = new SelectColorButton(
+			saveAsDefault = new JButton(
 					trans.get("RocketCompCfg.but.Saveasdefstyle"));
 			saveAsDefault.addActionListener(new ActionListener() {
 				@Override
@@ -343,9 +400,15 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 
 		{// Figure Color
 			add(new JLabel(trans.get("RocketCompCfg.lbl.Componentcolor")));
+			JPanel colorPanel = new JPanel(new MigLayout("ins 0"));
+			colorPanel.add(figureColorButton);
+			figureColorHexField.setColumns(7);
+			colorPanel.add(figureColorHexField);
 			fDefault.addEnableComponent(figureColorButton, false);
-			add(figureColorButton);
+			fDefault.addEnableComponent(figureColorHexField, false);
+			add(colorPanel, "growx");
 			order.add(figureColorButton);
+			order.add(figureColorHexField);
 		}
 
 		order.add(saveAsDefault);
@@ -357,7 +420,7 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 			System.arraycopy(LineStyle.values(), 0, list, 1,
 					LineStyle.values().length);
 
-			final JComboBox<LineStyle> combo = new JComboBox<LineStyle>(new EnumModel<LineStyle>(c,
+			final JComboBox<LineStyle> combo = new JComboBox<>(new EnumModel<>(c,
 					"LineStyle",
 					// // Default style
 					list, trans.get("LineStyle.Defaultstyle")));
@@ -514,7 +577,7 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		register(mDefault);
 
 		DecalModel decalModel = new DecalModel(panel, document, builder);
-		JComboBox<DecalImage> textureDropDown = new JComboBox<DecalImage>(decalModel);
+		JComboBox<DecalImage> textureDropDown = new JComboBox<>(decalModel);
 		textureDropDown.setMaximumRowCount(20);
 
 		// We need to add this action listener that triggers a decalModel update when the same item is selected, because
@@ -532,9 +595,16 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 			}
 		});
 
-		JButton colorButton = new SelectColorButton(new ColorIcon(builder.getPaint()));
+		JButton colorButton = new JButton(new ColorIcon(builder.getPaint()));
+		PlaceholderTextField colorHexField = new PlaceholderTextField(7);
+		colorHexField.setPlaceholder(trans.get("AppearanceCfg.placeholder.HexColor"));
+		colorHexField.setToolTipText(trans.get("AppearanceCfg.ttip.HexColor"));
+		colorHexField.setText(ColorConversion.toHexColor(builder.getPaint()));
 
-		colorButton.addActionListener(new ColorActionListener(builder, "Paint"));
+		colorButton.addActionListener(new ColorButtonActionListener(builder, "Paint"));
+		HexColorListener colorHexListener = new HexColorListener(builder, "Paint");
+		colorHexField.addActionListener(colorHexListener);
+		colorHexField.addFocusListener(colorHexListener);
 
 		// Texture Header Row
 		panel.add(new StyledLabel(trans.get("AppearanceCfg.lbl.Appearance"),
@@ -592,7 +662,7 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 			
 		//// Edit button
 		if ((SystemInfo.getPlatform() != Platform.UNIX) || !SystemInfo.isConfined()) {
-			JButton editBtn = new SelectColorButton(
+			JButton editBtn = new JButton(
 					trans.get("AppearanceCfg.but.edit"));
 			// Enable the editBtn only when the appearance builder has an Image
 			// assigned to it.
@@ -631,9 +701,15 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		// TODO: move the separate columns in two separate panels instead of adding them in a zig-zag way
 		// Color
 		panel.add(new JLabel(trans.get("AppearanceCfg.lbl.color.Color")));
+		JPanel colorPanel = new JPanel(new MigLayout("ins 0"));
+		colorPanel.add(colorButton);
+		colorHexField.setColumns(7);
+		colorPanel.add(colorHexField);
 		mDefault.addEnableComponent(colorButton, false);
-		panel.add(colorButton);
+		mDefault.addEnableComponent(colorHexField, false);
+		panel.add(colorPanel, "growx");
 		order.add(colorButton);
+		order.add(colorHexField);
 
 		// Scale
 		panel.add(new JLabel(trans.get("AppearanceCfg.lbl.texture.scale")), "gapleft para");
@@ -675,7 +751,7 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		panel.add(spinShine, "split 3, w 60");
 		panel.add(unitShine);
 		panel.add(slideShine, "w 100lp");
-		order.add(order.indexOf(colorButton) + 1, ((SpinnerEditor) spinShine.getEditor()).getTextField());
+		order.add(order.indexOf(colorHexField) + 1, ((SpinnerEditor) spinShine.getEditor()).getTextField());
 
 		// Offset
 		panel.add(new JLabel(trans.get("AppearanceCfg.lbl.texture.offset")), "gapleft para");
@@ -745,13 +821,15 @@ public class AppearancePanel extends JPanel implements Invalidatable, Invalidati
 		panel.add(combo, "wrap");
 		order.add(combo);
 
+		final EventObject event = new EventObject(this);
 		builder.addChangeListener(new StateChangeListener() {
 			double lastOpacity = builder.getOpacity();
 			@Override
 			public void stateChanged(EventObject e) {
 				colorButton.setIcon(new ColorIcon(builder.getPaint()));
+				colorHexField.setText(ColorConversion.toHexColor(builder.getPaint()));
 				if (lastOpacity != builder.getOpacity()) {
-					opacityModel.stateChanged(null);
+					opacityModel.stateChanged(event);
 					lastOpacity = builder.getOpacity();
 				}
 				if (!insideBuilder) {

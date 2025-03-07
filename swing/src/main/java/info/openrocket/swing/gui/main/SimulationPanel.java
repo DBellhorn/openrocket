@@ -24,6 +24,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import javax.swing.AbstractAction;
+import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.InputMap;
@@ -56,14 +57,13 @@ import info.openrocket.core.document.events.DocumentChangeListener;
 import info.openrocket.core.document.events.SimulationChangeEvent;
 import info.openrocket.core.formatting.RocketDescriptor;
 import info.openrocket.core.l10n.Translator;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.rocketcomponent.ComponentChangeEvent;
 import info.openrocket.core.rocketcomponent.ComponentChangeListener;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.simulation.FlightData;
-import info.openrocket.core.simulation.FlightEvent;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.startup.Preferences;
 import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.util.AlphanumComparator;
 
@@ -106,7 +106,7 @@ public class SimulationPanel extends JPanel {
 	private final OpenRocketDocument document;
 
 	private final ColumnTableModel simulationTableModel;
-	private final JTable simulationTable;
+	private final ColumnTable simulationTable;
 
 	private final JButton editButton;
 	private final JButton runButton;
@@ -207,6 +207,7 @@ public class SimulationPanel extends JPanel {
 		simulationTable.setDefaultRenderer(Object.class, new JLabelRenderer());
 		simulationTable.setDefaultRenderer(WarningsBox.class, new WarningsBoxRenderer());
 		simulationTableModel.setColumnWidths(simulationTable.getColumnModel());
+		simulationTable.setupAutoSizeColumns();
 		simulationTable.setFillsViewportHeight(true);
 
 		// Unregister the default actions that would otherwise conflict with RocketActions and their acceleration keys
@@ -339,7 +340,7 @@ public class SimulationPanel extends JPanel {
 		UITheme.Theme.addUIThemeChangeListener(SimulationPanel::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		dimTextColor = GUIUtil.getUITheme().getDimTextColor();
 		warningColor = GUIUtil.getUITheme().getWarningColor();
 		errorColor = GUIUtil.getUITheme().getErrorColor();
@@ -743,7 +744,7 @@ public class SimulationPanel extends JPanel {
 
 	/// when the simulation tab is selected this run outdated simulated if appropriate.
 	public void activating(){
-		if( ((Preferences) Application.getPreferences()).getAutoRunSimulations()){
+		if( ((ApplicationPreferences) Application.getPreferences()).getAutoRunSimulations()){
 			int nSims = simulationTable.getRowCount();
 			int outdated = 0;
 			if (nSims == 0) {
@@ -797,36 +798,10 @@ public class SimulationPanel extends JPanel {
 			return tip.toString();
 		}
 
-		switch (sim.getStatus()) {
-			case CANT_RUN:
-				tip.append(trans.get("simpanel.ttip.noData")).append("<br>");
-				break;
-			case LOADED:
-				tip.append(trans.get("simpanel.ttip.loaded")).append("<br>");
-				break;
-			case UPTODATE:
-				tip.append(trans.get("simpanel.ttip.uptodate")).append("<br>");
-				break;
+		String statusText = sim.getStatusDescription();
+		Color statusColor = GUIUtil.getUITheme().getStatusColor(sim.getStatus());
 
-			case OUTDATED:
-				tip.append(trans.get("simpanel.ttip.outdated")).append("<br>");
-				break;
-
-			case EXTERNAL:
-				tip.append(trans.get("simpanel.ttip.external")).append("<br>");
-				return tip.toString();
-
-			case NOT_SIMULATED:
-				tip.append(trans.get("simpanel.ttip.notSimulated"));
-				return tip.toString();
-		}
-
-		for (int b = 0; b < data.getBranchCount(); b++) {
-			FlightEvent abortEvent = data.getBranch(b).getFirstEvent(FlightEvent.Type.SIM_ABORT);
-			if (abortEvent != null) {
-				tip.append("<font color=\"red\"><i><b>").append(trans.get("simpanel.ttip.simAbort")).append(":</b></i> ").append((abortEvent.getData()).toString()).append("</font><br />");
-			}
-		}
+		tip.append(ColorConversion.formatHTMLColor(statusColor, statusText)).append("<br>");
 
 		return tip.toString();
 	}
@@ -853,12 +828,12 @@ public class SimulationPanel extends JPanel {
 
 		List<Warning> criticalWarnings = warnings.getCriticalWarnings();
 		List<Warning> normalWarnings = warnings.getNormalWarnings();
-		List<Warning> informativeWarnings = warnings.getInformativeWarnings();
+		List<Warning> informationalWarnings = warnings.getInformationalWarnings();
 
 		// Critical warnings
 		if (!criticalWarnings.isEmpty()) {
 			tip.append("<br><b>")
-					.append(ColorConversion.formatHTMLColor(errorColor, trans.get("simpanel.ttip.criticalWarnings")))
+					.append(ColorConversion.formatHTMLColor(errorColor, trans.get("simpanel.ttip.CriticalWarnings")))
 					.append("</b>");
 			for (Message m : criticalWarnings) {
 				tip.append("<br>").append(m.toString());
@@ -868,19 +843,19 @@ public class SimulationPanel extends JPanel {
 		// Warnings
 		if (!normalWarnings.isEmpty()) {
 			tip.append("<br><b>")
-					.append(ColorConversion.formatHTMLColor(warningColor, trans.get("simpanel.ttip.normalWarnings")))
+					.append(ColorConversion.formatHTMLColor(warningColor, trans.get("simpanel.ttip.NormalWarnings")))
 					.append("</b>");
 			for (Message m : normalWarnings) {
 				tip.append("<br>").append(m.toString());
 			}
 		}
 
-		// Informative warnings
-		if (!informativeWarnings.isEmpty()) {
+		// Informational warnings
+		if (!informationalWarnings.isEmpty()) {
 			tip.append("<br><b>")
-					.append(ColorConversion.formatHTMLColor(informationColor, trans.get("simpanel.ttip.informativeWarnings")))
+					.append(ColorConversion.formatHTMLColor(informationColor, trans.get("simpanel.ttip.InformationalWarnings")))
 					.append("</b>");
-			for (Message m : informativeWarnings) {
+			for (Message m : informationalWarnings) {
 				tip.append("<br>").append(m.toString());
 			}
 		}
@@ -1285,7 +1260,7 @@ public class SimulationPanel extends JPanel {
 
 			int nrOfCriticalWarnings = warnings.getNrOfCriticalWarnings();
 			int nrOfNormalWarnings = warnings.getNrOfNormalWarnings();
-			int nrOfInfoWarnings = warnings.getNrOfInformativeWarnings();
+			int nrOfInfoWarnings = warnings.getNrOfInformationalWarnings();
 
 			if (nrOfCriticalWarnings > 0) {
 				add(new JLabel(nrOfCriticalWarnings + " "));
@@ -1320,8 +1295,9 @@ public class SimulationPanel extends JPanel {
 			if (value instanceof WarningsBox box) {
 				// Wrap the box in a panel with BorderLayout to allow alignment
 				JPanel panel = new JPanel(new BorderLayout());
+				panel.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0)); // Add left padding
 				panel.setToolTipText(box.getToolTipText());
-				panel.add(box, BorderLayout.EAST); 	// Align to the right within the panel
+				panel.add(box, BorderLayout.CENTER); 	// Align to the center (or left) within the panel
 				panel.setOpaque(true);
 				if (isSelected) {
 					panel.setBackground(table.getSelectionBackground());
@@ -1365,7 +1341,7 @@ public class SimulationPanel extends JPanel {
 
 							// Initialize the label
 							if (label == null) {
-								label = new StatusLabel(simulation, 2f);
+								label = new StatusLabel(simulation, 2.0f);
 								label.setIconTextGap(1);
 								//							label.setFont(label.getFont().deriveFont(Font.BOLD));
 							} else {
@@ -1391,7 +1367,7 @@ public class SimulationPanel extends JPanel {
 					},
 
 					//// Warnings column
-					new Column(trans.get("simpanel.col.Warnings")) {
+					new Column(trans.get("simpanel.col.Warnings"), true, false) {
 						private WarningsBox box = null;
 
 						@Override
@@ -1413,7 +1389,7 @@ public class SimulationPanel extends JPanel {
 
 						@Override
 						public int getDefaultWidth() {
-							return 70;
+							return 40;
 						}
 
 						@Override
@@ -1555,7 +1531,7 @@ public class SimulationPanel extends JPanel {
 					},
 
 					//// Time to apogee
-					new ValueColumn(trans.get("simpanel.col.Timetoapogee"), UnitGroup.UNITS_FLIGHT_TIME) {
+					new ValueColumn(trans.get("simpanel.col.Timetoapogee"), UnitGroup.UNITS_LONG_TIME) {
 						@Override
 						public Double valueAt(int row) {
 							if (row < 0 || row >= document.getSimulationCount())
@@ -1570,7 +1546,7 @@ public class SimulationPanel extends JPanel {
 					},
 
 					//// Flight time
-					new ValueColumn(trans.get("simpanel.col.Flighttime"), UnitGroup.UNITS_FLIGHT_TIME) {
+					new ValueColumn(trans.get("simpanel.col.Flighttime"), UnitGroup.UNITS_LONG_TIME) {
 						@Override
 						public Double valueAt(int row) {
 							if (row < 0 || row >= document.getSimulationCount())

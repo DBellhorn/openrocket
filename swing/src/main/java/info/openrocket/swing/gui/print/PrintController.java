@@ -97,6 +97,7 @@ public class PrintController {
                         DesignReport dp = new DesignReport(doc, idoc, rotation, runSims, true, this.window);
                         dp.writeToDocument(writer);
                         idoc.newPage();
+						dp.restoreUITheme();
                         break;
 
                     case FIN_TEMPLATE:
@@ -158,9 +159,7 @@ public class PrintController {
             writer.close();
             idoc.close();
         }
-        catch (DocumentException e) {
-        }
-        catch (ExceptionConverter ec) {
+        catch (DocumentException | ExceptionConverter e) {
         }
         finally {
             if (outputFile != null) {

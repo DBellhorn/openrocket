@@ -8,6 +8,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
 import java.util.List;
 import java.util.Locale;
 import java.util.SortedSet;
@@ -37,7 +39,6 @@ import info.openrocket.swing.gui.theme.UITheme;
 import info.openrocket.swing.logging.LogLevelBufferLogger;
 import info.openrocket.swing.logging.LogLine;
 import info.openrocket.swing.logging.LoggingSystemSetup;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
 
 @SuppressWarnings("serial")
 public class BugReportDialog extends JDialog {
@@ -98,7 +99,7 @@ public class BugReportDialog extends JDialog {
 		panel.add(new StyledLabel(trans.get("bugreport.lbl.Theinformation"), -1), "wrap para");
 		
 		////Close button
-		JButton close = new SelectColorButton(trans.get("dlg.but.close"));
+		JButton close = new JButton(trans.get("dlg.but.close"));
 		close.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -122,7 +123,7 @@ public class BugReportDialog extends JDialog {
 		UITheme.Theme.addUIThemeChangeListener(BugReportDialog::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		darkErrorColor = GUIUtil.getUITheme().getDarkErrorColor();
 	}
 
@@ -231,10 +232,13 @@ public class BugReportDialog extends JDialog {
 		sbTemp.append("LAF: " + UIManager.getLookAndFeel().getClass().getName() + "\n");
 		sbTemp.append("JOGL version: " + JoglVersion.getInstance().getImplementationVersion() + "\n");
 		sbTemp.append("Current default locale: " + Locale.getDefault() + "\n");
+		RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
+		List<String> arguments = runtimeMxBean.getInputArguments();
+		sbTemp.append("JVM Arguments: " + String.join(" ", arguments) + "\n");
 		sbTemp.append("System properties:\n");
 
 		// Sort the keys
-		SortedSet<String> keys = new TreeSet<String>();
+		SortedSet<String> keys = new TreeSet<>();
 		for (Object key : System.getProperties().keySet()) {
 			keys.add((String) key);
 		}

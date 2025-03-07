@@ -48,12 +48,13 @@ import javax.swing.filechooser.FileFilter;
 import javax.swing.tree.DefaultTreeSelectionModel;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
+
+import info.openrocket.core.preferences.ApplicationPreferences;
+import info.openrocket.swing.gui.util.UpdateInfoRunner;
 import net.miginfocom.swing.MigLayout;
 
 import info.openrocket.core.file.wavefrontobj.export.OBJExportOptions;
 import info.openrocket.core.file.wavefrontobj.export.OBJExporterFactory;
-import info.openrocket.core.file.wavefrontobj.CoordTransform;
-import info.openrocket.core.file.wavefrontobj.DefaultCoordTransform;
 import info.openrocket.core.logging.ErrorSet;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.appearance.DecalImage;
@@ -74,7 +75,6 @@ import info.openrocket.core.rocketcomponent.ComponentChangeListener;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.startup.Preferences;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.DecalNotFoundException;
 import info.openrocket.core.util.MemoryManagement;
@@ -90,7 +90,7 @@ import info.openrocket.swing.gui.configdialog.ComponentConfigDialog;
 import info.openrocket.swing.gui.customexpression.CustomExpressionDialog;
 import info.openrocket.swing.gui.dialogs.AboutDialog;
 import info.openrocket.swing.gui.dialogs.BugReportDialog;
-import info.openrocket.swing.gui.dialogs.ComponentAnalysisDialog;
+import info.openrocket.swing.gui.dialogs.componentanalysis.ComponentAnalysisDialog;
 import info.openrocket.swing.gui.dialogs.DebugLogDialog;
 import info.openrocket.swing.gui.dialogs.DecalNotFoundDialog;
 import info.openrocket.swing.gui.dialogs.DetailDialog;
@@ -127,7 +127,7 @@ public class BasicFrame extends JFrame {
 	private static final GeneralRocketSaver ROCKET_SAVER = new GeneralRocketSaver();
 
 	private static final Translator trans = Application.getTranslator();
-	private static final Preferences prefs = Application.getPreferences();
+	private static final ApplicationPreferences prefs = Application.getPreferences();
 
 	public static final int SHORTCUT_KEY = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
 
@@ -144,7 +144,7 @@ public class BasicFrame extends JFrame {
 	 * List of currently open frames.  When the list goes empty
 	 * it is time to exit the application.
 	 */
-	private static final List<BasicFrame> frames = new ArrayList<BasicFrame>();
+	private static final List<BasicFrame> frames = new ArrayList<>();
 	private static BasicFrame startupFrame = null;	// the frame that was created at startup
 
 
@@ -257,6 +257,7 @@ public class BasicFrame extends JFrame {
 
 			popupMenu.addSeparator();
 			popupMenu.add(actions.getScaleAction());
+			popupMenu.add(actions.getToggleVisibilityAction());
 
 			popupMenu.addSeparator();
 			popupMenu.add(actions.getExportOBJAction());
@@ -513,6 +514,21 @@ public class BasicFrame extends JFrame {
 
 		// ------------------------------------------------------------------------------------------
 
+
+		//// Properties
+		item = new JMenuItem(trans.get("main.menu.file.properties"), KeyEvent.VK_I);
+		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.file.properties.desc"));
+		item.setIcon(Icons.CONFIGURE);
+		item.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_I, SHORTCUT_KEY));
+		item.addActionListener(new ActionListener(){
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				log.info(Markers.USER_MARKER, "Properties selected");
+				ComponentConfigDialog.showDialog(BasicFrame.this,document, rocket);
+			}
+		});
+		fileMenu.add(item);
+
 		////	Close
 		item = new JMenuItem(trans.get("main.menu.file.close"), KeyEvent.VK_C);
 		item.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_W, SHORTCUT_KEY));
@@ -608,6 +624,15 @@ public class BasicFrame extends JFrame {
 		item = new JMenuItem(actions.getScaleAction());
 		editMenu.add(item);
 
+		////	Visibility
+		JMenu visibilitySubMenu = new JMenu(trans.get("RocketActions.Visibility"));
+		editMenu.add(visibilitySubMenu);
+		item = new JMenuItem(actions.getToggleVisibilityAction());
+		visibilitySubMenu.add(item);
+		item = new JMenuItem(actions.getShowAllComponentsAction());
+		visibilitySubMenu.add(item);
+
+		editMenu.addSeparator();
 
 		////	Preferences
 		item = new JMenuItem(trans.get("main.menu.edit.preferences"));
@@ -654,7 +679,7 @@ public class BasicFrame extends JFrame {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				log.info(Markers.USER_MARKER, "Component analysis selected");
-				ComponentAnalysisDialog.showDialog(rocketpanel);
+				ComponentAnalysisDialog.showDialog(document, rocketpanel);
 			}
 		});
 		toolsMenu.add(item);
@@ -733,15 +758,15 @@ public class BasicFrame extends JFrame {
 		});
 		menu.add(item);
 
-		////	Wiki (Online Help)
-		item = new JMenuItem(trans.get("main.menu.help.wiki"));
-		item.setIcon(Icons.WIKI);
-		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.help.wiki.desc"));
+		////	Online Documentation
+		item = new JMenuItem(trans.get("main.menu.help.documentation"));
+		item.setIcon(Icons.DOCUMENTATION);
+		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.help.documentation.desc"));
 		item.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				log.info(Markers.USER_MARKER, "Wiki selected");
-				URLUtil.openWebpage(URLUtil.WIKI_URL);
+				log.info(Markers.USER_MARKER, "Documentation selected");
+				URLUtil.openWebpage(URLUtil.DOCS_URL);
 			}
 		});
 		menu.add(item);
@@ -786,6 +811,19 @@ public class BasicFrame extends JFrame {
 			public void actionPerformed(ActionEvent e) {
 				log.info(Markers.USER_MARKER, "License selected");
 				new LicenseDialog(parent).setVisible(true);
+			}
+		});
+		menu.add(item);
+
+		////	Check for updates
+		item = new JMenuItem(trans.get("main.menu.help.checkForUpdates"), KeyEvent.VK_U);
+		item.setIcon(Icons.HELP_CHECK_FOR_UPDATES);
+		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.help.checkForUpdates.desc"));
+		item.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				log.info(Markers.USER_MARKER, "Check for updates selected");
+				UpdateInfoRunner.checkForUpdates(parent);
 			}
 		});
 		menu.add(item);
@@ -881,6 +919,7 @@ public class BasicFrame extends JFrame {
 			}
 		});
 		importSubMenu.add(importRockSim);
+
 	}
 
 	public RocketActions getRocketActions() {
@@ -1035,7 +1074,7 @@ public class BasicFrame extends JFrame {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				log.info(Markers.USER_MARKER, "Exhaust memory selected");
-				LinkedList<byte[]> data = new LinkedList<byte[]>();
+				LinkedList<byte[]> data = new LinkedList<>();
 				int count = 0;
 				final int bytesPerArray = 10240;
 				try {
@@ -1389,6 +1428,7 @@ public class BasicFrame extends JFrame {
 	 * @return true if the file was saved, false otherwise
 	 */
 	private boolean saveAction() {
+		document.fireDocumentSavingEvent(new DocumentChangeEvent(this));
 		File file = document.getFile();
 		if (file == null || document.getDefaultStorageOptions().getFileType().equals(FileType.ROCKSIM)
 				|| document.getDefaultStorageOptions().getFileType().equals(FileType.RASAERO)) {

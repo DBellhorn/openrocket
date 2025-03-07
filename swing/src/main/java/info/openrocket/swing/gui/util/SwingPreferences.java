@@ -16,12 +16,16 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
 
 import info.openrocket.core.database.Databases;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.rocketcomponent.NoseCone;
+import info.openrocket.core.componentanalysis.CADataType;
+import info.openrocket.swing.gui.dialogs.preferences.UIPreferencesPanel;
 import info.openrocket.swing.gui.theme.UITheme;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +41,6 @@ import info.openrocket.core.rocketcomponent.RailButton;
 import info.openrocket.core.rocketcomponent.RecoveryDevice;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.TubeFinSet;
-import info.openrocket.core.simulation.SimulationOptionsInterface;
 import info.openrocket.core.util.ORColor;
 import info.openrocket.core.arch.SystemInfo;
 import info.openrocket.core.document.Simulation;
@@ -56,18 +59,21 @@ import info.openrocket.core.util.BuildProperties;
 import info.openrocket.swing.communication.AssetHandler.UpdatePlatform;
 
 
-public class SwingPreferences extends info.openrocket.core.startup.Preferences implements SimulationOptionsInterface {
+public class SwingPreferences extends ApplicationPreferences {
 	private static final Logger log = LoggerFactory.getLogger(SwingPreferences.class);
 
 
 	public static final String NODE_WINDOWS = "windows";
 	public static final String NODE_TABLES = "tables";
+	public static final String UI_SCALE = "UIScaling";
 	private static final String UI_FONT_SIZE = "UIFontSize";
+	public static final String UI_FONT_STYLE = "UIFontStyle";
+	public static final String UI_FONT_TRACKING = "UIFontTracking";
 	public static final String UPDATE_PLATFORM = "UpdatePlatform";
 	
 	private static final List<Locale> SUPPORTED_LOCALES;
 	static {
-		List<Locale> list = new ArrayList<Locale>();
+		List<Locale> list = new ArrayList<>();
 		for (String lang : new String[] { "en", "ar", "de", "es", "fr", "it", "nl", "ru", "cs", "pl", "ja", "pt", "tr" }) {
 			list.add(new Locale(lang));
 		}
@@ -127,6 +133,10 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 		DEFAULT_COLORS.put(RecoveryDevice.class, getUIThemeAsTheme().getDefaultRecoveryDeviceColor());
 		DEFAULT_COLORS.put(PodSet.class, getUIThemeAsTheme().getDefaultPodSetColor());
 		DEFAULT_COLORS.put(ParallelStage.class, getUIThemeAsTheme().getDefaultParallelStageColor());
+	}
+
+	public void updateColors() {
+		fillDefaultComponentColors();
 	}
 
 	public String getNodename() {
@@ -358,7 +368,7 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	}
 
 	private UITheme.Theme getUIThemeAsTheme() {
-		String themeName = getString(info.openrocket.core.startup.Preferences.UI_THEME, UITheme.Themes.LIGHT.name());
+		String themeName = getString(ApplicationPreferences.UI_THEME, UITheme.Themes.LIGHT.name());
 		if (themeName == null) return UITheme.Themes.LIGHT;		// Default theme
 		try {
 			return UITheme.Themes.valueOf(themeName);
@@ -374,7 +384,20 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	@Override
 	public void setUITheme(Object theme) {
 		if (!(theme instanceof UITheme.Theme)) return;
-		putString(info.openrocket.core.startup.Preferences.UI_THEME, ((UITheme.Theme) theme).name());
+		putString(ApplicationPreferences.UI_THEME, ((UITheme.Theme) theme).name());
+		storeVersion();
+	}
+
+	public double getUIScale() {
+		return getDouble(UI_SCALE, 1.0);
+	}
+
+	/**
+	 * Set how much the UI should be scaled.
+	 * @param scale: scaling factor, 1.0 = no scaling, < 1.0 = smaller UI, > 1.0 = larger UI
+	 */
+	public void setUIScale(double scale) {
+		putDouble(UI_SCALE, scale);
 		storeVersion();
 	}
 
@@ -383,11 +406,16 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	 * @return the current font size
 	 */
 	public int getUIFontSize() {
-		return getInt(UI_FONT_SIZE, getDefaultFontSize());
+		int fontSize = getInt(UI_FONT_SIZE, getDefaultFontSize());
+		int scaledFontSize = (int) (fontSize * getUIScale());
+		return Math.max(8, scaledFontSize);
 	}
 
 	public final float getRocketInfoFontSize() {
-		return (float) ((getUIFontSize() - 2) + 3 * Application.getPreferences().getChoice(info.openrocket.core.startup.Preferences.ROCKET_INFO_FONT_SIZE, 2, 0));
+		float fontSize = (float) ((getUIFontSize() - 2) + 3 *
+				Application.getPreferences().getChoice(ApplicationPreferences.ROCKET_INFO_FONT_SIZE, 2, 0));
+		float scaledFontSize = (float) (fontSize * getUIScale());
+		return Math.max(8, scaledFontSize);
 	}
 
 	private static int getDefaultFontSize() {
@@ -401,12 +429,52 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	}
 
 	/**
-	 * Set the font size used for the UI.
+	 * Get the current font size used for the UI without scaling.
+	 * @return the current font size
+	 */
+	public int getUIFontSizeRaw() {
+		return getInt(UI_FONT_SIZE, getDefaultFontSize());
+	}
+
+	/**
+	 * Set the font size used for the UI (without scaling).
 	 * @param size the font size to set
 	 */
-	public void setUIFontSize(int size) {
+	public void setUIFontSizeRaw(int size) {
 		putInt(UI_FONT_SIZE, size);
 		storeVersion();
+	}
+
+	/**
+	 * Get the current font style used for the UI.
+	 * @return the current style weight (e.g. "Inter-Regular")
+	 */
+	public String getUIFontStyle() {
+		return getString(UI_FONT_STYLE, UIPreferencesPanel.FontStyle.REGULAR.getFontName());
+	}
+
+	/**
+	 * Set the font weight used for the UI.
+	 * @param fontWeight the font weight to set
+	 */
+	public void setUIFontStyle(String fontWeight) {
+		putString(UI_FONT_STYLE, fontWeight);
+	}
+
+	/**
+	 * Get the current font tracking used for the UI.
+	 * @return the current tracking value
+	 */
+	public double getUIFontTracking() {
+		return getDouble(UI_FONT_TRACKING, 0.0);
+	}
+
+	/**
+	 * Set the font tracking used for the UI.
+	 * @param tracking the tracking value to set
+	 */
+	public void setUIFontTracking(double tracking) {
+		putDouble(UI_FONT_TRACKING, tracking);
 	}
 
 	public ORColor getDefaultColor(Class<? extends RocketComponent> c) {
@@ -429,7 +497,7 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	}
 	
 	public File getDefaultDirectory() {
-		String file = getString(info.openrocket.core.startup.Preferences.DEFAULT_DIRECTORY, null);
+		String file = getString(ApplicationPreferences.DEFAULT_DIRECTORY, null);
 		if (file == null)
 			return null;
 		return new File(file);
@@ -442,7 +510,7 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 		} else {
 			d = dir.getAbsolutePath();
 		}
-		putString(info.openrocket.core.startup.Preferences.DEFAULT_DIRECTORY, d);
+		putString(ApplicationPreferences.DEFAULT_DIRECTORY, d);
 		storeVersion();
 	}
 
@@ -634,13 +702,23 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	
 	/////////  Export variables
 	
-	public boolean isExportSelected(FlightDataType type) {
+	public boolean isFlightDataTypeExportSelected(FlightDataType type) {
 		Preferences prefs = PREFNODE.node("exports");
 		return prefs.getBoolean(type.getName(), false);
 	}
 	
-	public void setExportSelected(FlightDataType type, boolean selected) {
+	public void setFlightDataTypeExportSelected(FlightDataType type, boolean selected) {
 		Preferences prefs = PREFNODE.node("exports");
+		prefs.putBoolean(type.getName(), selected);
+	}
+
+	public boolean isComponentAnalysisDataTypeExportSelected(CADataType type) {
+		Preferences prefs = PREFNODE.node("exportsComponentAnalysis");
+		return prefs.getBoolean(type.getName(), false);
+	}
+
+	public void setComponentAnalysisExportSelected(CADataType type, boolean selected) {
+		Preferences prefs = PREFNODE.node("exportsComponentAnalysis");
 		prefs.putBoolean(type.getName(), selected);
 	}
 	
@@ -677,12 +755,12 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	public void storeDefaultUnits() {
 		Preferences prefs = PREFNODE.node("units");
 		
-		for (String key : UnitGroup.UNITS.keySet()) {
-			UnitGroup group = UnitGroup.UNITS.get(key);
+		for (Map.Entry<String, UnitGroup> entry : UnitGroup.UNITS.entrySet()) {
+			UnitGroup group = entry.getValue();
 			if (group == null || group.getUnitCount() < 2)
 				continue;
 			
-			prefs.put(key, group.getDefaultUnit().getUnit());
+			prefs.put(entry.getKey(), group.getDefaultUnit().getUnit());
 		}
 	}
 	
@@ -766,7 +844,7 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	public Set<Material> getUserMaterials() {
 		Preferences prefs = PREFNODE.node("userMaterials");
 		
-		HashSet<Material> materials = new HashSet<Material>();
+		HashSet<Material> materials = new HashSet<>();
 		try {
 			
 			for (String key : prefs.keys()) {
@@ -804,7 +882,7 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	@Override
 	public Set<String> getComponentFavorites(ComponentPreset.Type type) {
 		Preferences prefs = PREFNODE.node("favoritePresets").node(type.name());
-		Set<String> collection = new HashSet<String>();
+		Set<String> collection = new HashSet<>();
 		try {
 			collection.addAll(Arrays.asList(prefs.keys()));
 		} catch (BackingStoreException bex) {
@@ -847,7 +925,7 @@ public class SwingPreferences extends info.openrocket.core.startup.Preferences i
 	
 	public List<Manufacturer> getExcludedMotorManufacturers() {
 		Preferences prefs = PREFNODE.node("excludedMotorManufacturers");
-		List<Manufacturer> collection = new ArrayList<Manufacturer>();
+		List<Manufacturer> collection = new ArrayList<>();
 		try {
 			String[] manuShortNames = prefs.keys();
 			for (String s : manuShortNames) {

@@ -3,7 +3,6 @@
  */
 package info.openrocket.swing.gui.print;
 
-import java.awt.Graphics2D;
 import java.awt.Window;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -15,6 +14,13 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import com.itextpdf.awt.PdfGraphics2D;
+import info.openrocket.swing.gui.figureelements.CGCaret;
+import info.openrocket.swing.gui.figureelements.CPCaret;
+import info.openrocket.swing.gui.scalefigure.AbstractScaleFigure;
+import info.openrocket.swing.gui.scalefigure.RocketFigure;
+import info.openrocket.swing.gui.theme.UITheme;
+import info.openrocket.swing.gui.util.GUIUtil;
+import info.openrocket.swing.gui.util.SwingPreferences;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -116,7 +122,7 @@ public class DesignReport {
 	/**
 	 * The figure rotation.
 	 */
-	private double rotation = 0d;
+	private double rotation = 0.0d;
 	
 	/**
 	 * Determines whether or not to run out of date simulations.
@@ -132,6 +138,8 @@ public class DesignReport {
 	 * Parent window for showing simulation run dialog as necessary
 	 */
 	private Window window = null;
+
+	private final UITheme.Theme originalTheme;
 	
 	/** The displayed strings. */
 	private static final String STAGES = "Stages: ";
@@ -193,10 +201,13 @@ public class DesignReport {
 	 */
 	public DesignReport(OpenRocketDocument theRocDoc, Document theIDoc, Double figureRotation,
 	                    boolean runOutOfDateSims, boolean updateExistingSims, Window window) {
-		document = theIDoc;
-		rocketDocument = theRocDoc;
-		panel = new RocketPanel(rocketDocument);
-		rotation = figureRotation;
+		this.originalTheme = GUIUtil.getUITheme();
+		GUIUtil.setUITheme(UITheme.Themes.LIGHT);
+		updateColors();
+		this.document = theIDoc;
+		this.rocketDocument = theRocDoc;
+		this.panel = new RocketPanel(this.rocketDocument);
+		this.rotation = figureRotation;
 		this.runOutOfDateSimulations = runOutOfDateSims;
 		this.updateExistingSimulations = updateExistingSims;
 		this.window = window;
@@ -356,7 +367,20 @@ public class DesignReport {
 		g2d.dispose();
 		return scale;
 	}
-	
+
+	public void restoreUITheme() {
+		GUIUtil.setUITheme(originalTheme);
+		updateColors();
+	}
+
+	private void updateColors() {
+		AbstractScaleFigure.updateColors();
+		RocketFigure.updateColors();
+		CGCaret.updateColors();
+		CPCaret.updateColors();
+		((SwingPreferences) Application.getPreferences()).updateColors();
+	}
+
 	/**
 	 * Add the motor data for a motor configuration to the table.
 	 *
@@ -443,7 +467,7 @@ public class DesignReport {
 				motorTable.addCell(ITextHelper.createCell(
 						UnitGroup.UNITS_FORCE.getDefaultUnit().toStringUnit(motor.getAverageThrustEstimate()), border));
 				motorTable.addCell(ITextHelper.createCell(
-						UnitGroup.UNITS_FLIGHT_TIME.getDefaultUnit().toStringUnit(motor.getBurnTimeEstimate()), border));
+						UnitGroup.UNITS_LONG_TIME.getDefaultUnit().toStringUnit(motor.getBurnTimeEstimate()), border));
 				motorTable.addCell(ITextHelper.createCell(
 						UnitGroup.UNITS_FORCE.getDefaultUnit().toStringUnit(motor.getMaxThrustEstimate()), border));
 				motorTable.addCell(ITextHelper.createCell(
@@ -491,7 +515,7 @@ public class DesignReport {
 		
 		PdfPCell c = new PdfPCell(motorTable);
 		c.setBorder(PdfPCell.LEFT);
-		c.setBorderWidthTop(0f);
+		c.setBorderWidthTop(0.0f);
 		parent.addCell(c);
 	}
 	
@@ -516,20 +540,20 @@ public class DesignReport {
 				}
 				final Unit distanceUnit = UnitGroup.UNITS_DISTANCE.getDefaultUnit();
 				final Unit velocityUnit = UnitGroup.UNITS_VELOCITY.getDefaultUnit();
-				final Unit flightTimeUnit = UnitGroup.UNITS_FLIGHT_TIME.getDefaultUnit();
+				final Unit flightTimeUnit = UnitGroup.UNITS_LONG_TIME.getDefaultUnit();
 				
 				PdfPTable labelTable = new PdfPTable(2);
 				labelTable.setWidths(new int[] { 3, 2 });
 				final Paragraph chunk = ITextHelper.createParagraph(stripBrackets(
 						descriptor.format(theRocket, motorId)), PrintUtilities.BOLD);
 				chunk.setLeading(leading);
-				chunk.setSpacingAfter(3f);
+				chunk.setSpacingAfter(3.0f);
 				
 				document.add(chunk);
 				
 				final PdfPCell cell = ITextHelper.createCell(ALTITUDE, 2, 2);
 				cell.setUseBorderPadding(false);
-				cell.setBorderWidthTop(0f);
+				cell.setBorderWidthTop(0.0f);
 				labelTable.addCell(cell);
 				labelTable.addCell(ITextHelper.createCell(distanceUnit.toStringUnit(flight.getMaxAltitude()), 2, 2));
 				
@@ -578,8 +602,7 @@ public class DesignReport {
 	private FlightData findSimulation(final FlightConfigurationId motorId, List<Simulation> simulations) {
 		// Perform flight simulation
 		FlightData flight = null;
-		for (int i = 0; i < simulations.size(); i++) {
-			Simulation simulation = simulations.get(i);
+		for (Simulation simulation : simulations) {
 			if (Utils.equals(simulation.getId(), motorId)) {
 				flight = simulation.getSimulatedData();
 				break;
@@ -607,8 +630,8 @@ public class DesignReport {
 			return simulations;
 		}
 		
-		ArrayList<Simulation> simulationsToRun = new ArrayList<Simulation>();
-		ArrayList<Simulation> upToDateSimulations = new ArrayList<Simulation>();
+		ArrayList<Simulation> simulationsToRun = new ArrayList<>();
+		ArrayList<Simulation> upToDateSimulations = new ArrayList<>();
 		for (Simulation simulation : simulations) {
 			boolean simulate = false;
 			boolean copy = !this.updateExistingSimulations;
@@ -669,7 +692,7 @@ public class DesignReport {
 	protected void runSimulations(List<Simulation> simulations) {
 		if (window != null) {
 			log.debug("Updating " + simulations.size() + "simulations using SimulationRunDialog");
-			Simulation[] runMe = simulations.toArray(new Simulation[simulations.size()]);
+			Simulation[] runMe = simulations.toArray(new Simulation[0]);
 			new SimulationRunDialog(window, rocketDocument, runMe).setVisible(true);
 		} else {
 			/* This code is left for compatibility with any developers who are
@@ -680,7 +703,7 @@ public class DesignReport {
 			log.debug("Updating simulations using thread pool");
 			int cores = Runtime.getRuntime().availableProcessors();
 			ThreadPoolExecutor executor = new ThreadPoolExecutor(cores, cores, 0L, TimeUnit.MILLISECONDS,
-			                                                     new LinkedBlockingQueue<Runnable>(),
+					new LinkedBlockingQueue<>(),
 			                                                     new SimulationRunnerThreadFactory());
 			for (Simulation simulation : simulations) {
 				executor.execute(new RunSimulationTask(simulation));

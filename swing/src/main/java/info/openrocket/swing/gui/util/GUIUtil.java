@@ -1,6 +1,16 @@
 package info.openrocket.swing.gui.util;
 
-import java.awt.*;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontFormatException;
+import java.awt.GraphicsEnvironment;
+import java.awt.Image;
+import java.awt.KeyboardFocusManager;
+import java.awt.Point;
+import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ComponentAdapter;
@@ -18,9 +28,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import javax.imageio.ImageIO;
@@ -45,13 +55,11 @@ import javax.swing.JTable;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
-import javax.swing.LookAndFeel;
 import javax.swing.RootPaneContainer;
 import javax.swing.SpinnerModel;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
-import javax.swing.UIManager;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.ChangeListener;
 import javax.swing.table.AbstractTableModel;
@@ -67,13 +75,11 @@ import javax.swing.tree.DefaultTreeSelectionModel;
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreeSelectionModel;
 
-import com.formdev.flatlaf.FlatLightLaf;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.swing.gui.Resettable;
 
-import info.openrocket.core.arch.SystemInfo;
 import info.openrocket.core.logging.Markers;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.startup.Preferences;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.Invalidatable;
 import info.openrocket.core.util.MemoryManagement;
@@ -88,7 +94,7 @@ public class GUIUtil {
 	private static final KeyStroke ESCAPE = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
 	private static final String CLOSE_ACTION_KEY = "escape:WINDOW_CLOSING";
 	
-	private static final List<Image> images = new ArrayList<Image>();
+	private static final List<Image> images = new ArrayList<>();
 	static {
 		loadImage("pix/icon/icon-256.png");
 		loadImage("pix/icon/icon-064.png");
@@ -109,6 +115,37 @@ public class GUIUtil {
 			images.add(image);
 		} catch (IOException ignore) {
 			ignore.printStackTrace();
+		}
+	}
+
+	public static void loadCustomFonts() {
+		// Load custom fonts
+		try {
+			String[] fontPaths = {
+					"/fonts/Inter/Inter-Italic-VariableFont_opsz,wght.ttf",
+					"/fonts/Inter/Inter-VariableFont_opsz,wght.ttf",
+			};
+			GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+
+			for (String fontPath : fontPaths) {
+				Font font = Font.createFont(Font.TRUETYPE_FONT,
+						Objects.requireNonNull(GUIUtil.class.getResourceAsStream(fontPath)));
+
+				// Register font with the graphics environment
+				ge.registerFont(font);
+				log.debug("Loaded custom font: " + font.getName());
+			}
+		} catch (IOException | FontFormatException e) {
+			log.error("Error loading custom fonts", e);
+		}
+	}
+
+	public static void printAvailableFonts() {
+		GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+		Font[] fonts = ge.getAllFonts();
+		for (Font font : fonts) {
+			log.debug("Available font: " + font.getName());
+			System.out.println("Available font: " + font.getName());
 		}
 	}
 	
@@ -149,7 +186,6 @@ public class GUIUtil {
 		setWindowIcons(dialog);
 		addModelNullingListener(dialog);
 		dialog.setLocationRelativeTo(dialog.getOwner());
-		dialog.setLocationByPlatform(true);
 		dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 		dialog.pack();
 		if (defaultButton != null) {
@@ -245,9 +281,9 @@ public class GUIUtil {
 	 * @param c		the component to modify
 	 */
 	public static void setTabToFocusing(Component c) {
-		Set<KeyStroke> strokes = new HashSet<KeyStroke>(Arrays.asList(KeyStroke.getKeyStroke("pressed TAB")));
+		Set<KeyStroke> strokes = new HashSet<>(Arrays.asList(KeyStroke.getKeyStroke("pressed TAB")));
 		c.setFocusTraversalKeys(KeyboardFocusManager.FORWARD_TRAVERSAL_KEYS, strokes);
-		strokes = new HashSet<KeyStroke>(Arrays.asList(KeyStroke.getKeyStroke("shift pressed TAB")));
+		strokes = new HashSet<>(Arrays.asList(KeyStroke.getKeyStroke("shift pressed TAB")));
 		c.setFocusTraversalKeys(KeyboardFocusManager.BACKWARD_TRAVERSAL_KEYS, strokes);
 	}
 	
@@ -285,12 +321,19 @@ public class GUIUtil {
 	 * @return the current theme
 	 */
 	public static UITheme.Theme getUITheme() {
-		Preferences prefs = Application.getPreferences();
+		ApplicationPreferences prefs = Application.getPreferences();
 		Object theme = prefs.getUITheme();
 		if (theme instanceof UITheme.Theme) {
 			return (UITheme.Theme) theme;
 		}
 		return UITheme.Themes.LIGHT;
+	}
+
+	public static void setUITheme(UITheme.Theme theme) {
+		ApplicationPreferences prefs = Application.getPreferences();
+		prefs.setUITheme(theme);
+		theme.applyTheme();
+		// TODO: use UITheme notifyUIThemeChangeListeners once properly implemented
 	}
 
 	public static void applyLAF() {
@@ -552,7 +595,7 @@ public class GUIUtil {
 				combo.removeActionListener(l);
 			}
 			ComboBoxModel<?> model = combo.getModel();
-			combo.setModel(new DefaultComboBoxModel<Object>());
+			combo.setModel(new DefaultComboBoxModel<>());
 			if (model instanceof Invalidatable) {
 				((Invalidatable) model).invalidateMe();
 			}

@@ -1,6 +1,5 @@
 package info.openrocket.swing.gui.dialogs.preferences;
 
-import java.awt.Dialog.ModalityType;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
@@ -14,58 +13,40 @@ import java.util.Locale;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
-import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JProgressBar;
-import javax.swing.JSpinner;
+import javax.swing.JSeparator;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
+import info.openrocket.swing.gui.util.UpdateInfoRunner;
 import net.miginfocom.swing.MigLayout;
 
-import info.openrocket.core.communication.ReleaseInfo;
-import info.openrocket.core.communication.UpdateInfo;
-import info.openrocket.core.communication.UpdateInfoRetriever;
-import info.openrocket.core.communication.UpdateInfoRetriever.ReleaseStatus;
 import info.openrocket.core.gui.util.SimpleFileFilter;
 import info.openrocket.core.l10n.L10N;
 import info.openrocket.core.logging.Markers;
-import info.openrocket.core.startup.Preferences;
-import info.openrocket.core.util.BuildProperties;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.util.Named;
 import info.openrocket.core.util.Utils;
 
-import info.openrocket.swing.gui.SpinnerEditor;
-import info.openrocket.swing.gui.adaptors.IntegerModel;
 import info.openrocket.swing.gui.components.DescriptionArea;
 import info.openrocket.swing.gui.components.StyledLabel;
 import info.openrocket.swing.gui.components.StyledLabel.Style;
-import info.openrocket.swing.gui.dialogs.UpdateInfoDialog;
 import info.openrocket.swing.gui.util.GUIUtil;
 import info.openrocket.swing.gui.util.SwingPreferences;
 import info.openrocket.swing.gui.util.PreferencesExporter;
 import info.openrocket.swing.gui.util.PreferencesImporter;
-import info.openrocket.swing.gui.theme.UITheme;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
+
 
 @SuppressWarnings("serial")
 public class GeneralPreferencesPanel extends PreferencesPanel {
-	private final UITheme.Theme currentTheme;
-	private final int currentFontSize;
 
 	public GeneralPreferencesPanel(PreferencesDialog parent) {
 		super(parent, new MigLayout("fillx, ins 30lp n n n"));
-
-		this.currentTheme = GUIUtil.getUITheme();
-		this.currentFontSize = preferences.getUIFontSize();
 		
 		//// Language selector
 		Locale userLocale;
@@ -73,14 +54,14 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 			String locale = preferences.getString("locale", null);
 			userLocale = L10N.toLocale(locale);
 		}
-		List<Named<Locale>> locales = new ArrayList<Named<Locale>>();
+		List<Named<Locale>> locales = new ArrayList<>();
 		for (Locale l : SwingPreferences.getSupportedLocales()) {
-			locales.add(new Named<Locale>(l, l.getDisplayLanguage(l) + "/" + l.getDisplayLanguage()));
+			locales.add(new Named<>(l, l.getDisplayLanguage(l) + "/" + l.getDisplayLanguage()));
 		}
 		Collections.sort(locales);
-		locales.add(0, new Named<Locale>(null, trans.get("generalprefs.languages.default")));
+		locales.add(0, new Named<>(null, trans.get("generalprefs.languages.default")));
 		
-		final JComboBox<?> languageCombo = new JComboBox<Object>(locales.toArray());
+		final JComboBox<?> languageCombo = new JComboBox<>(locales.toArray());
 		for (int i = 0; i < locales.size(); i++) {
 			if (Utils.equals(userLocale, locales.get(i).get())) {
 				languageCombo.setSelectedIndex(i);
@@ -93,7 +74,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 				Named<Locale> selection = (Named<Locale>) languageCombo.getSelectedItem();
 				if (selection == null) return;
 				Locale l = selection.get();
-				preferences.putString(Preferences.USER_LOCAL, l == null ? null : l.toString());
+				preferences.putString(ApplicationPreferences.USER_LOCAL, l == null ? null : l.toString());
 			}
 		});
 		this.add(new JLabel(trans.get("generalprefs.lbl.language")), "gapright para");
@@ -101,61 +82,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		
 		this.add(new StyledLabel(trans.get("generalprefs.lbl.languageEffect"), -3, Style.ITALIC), "span, wrap rel");
 
-		//// UI Theme
-		UITheme.Theme currentTheme = GUIUtil.getUITheme();
-		List<Named<UITheme.Theme>> themes = new ArrayList<>();
-		for (UITheme.Theme t : UITheme.Themes.values()) {
-			themes.add(new Named<>(t, t.getDisplayName()));
-		}
-		Collections.sort(themes);
-
-		final JComboBox<?> themesCombo = new JComboBox<>(themes.toArray());
-		for (int i = 0; i < themes.size(); i++) {
-			if (Utils.equals(currentTheme, themes.get(i).get())) {
-				themesCombo.setSelectedIndex(i);
-			}
-		}
-
-		this.add(new JLabel(trans.get("generalprefs.lbl.UITheme")), "gapright para");
-		this.add(themesCombo, "wrap, growx, sg combos");
-
-		//// Font size
-		this.add(new JLabel(trans.get("generalprefs.lbl.FontSize")), "gapright para");
-		final IntegerModel fontSizeModel = new IntegerModel(preferences, "UIFontSize", 5, 25);
-		final JSpinner fontSizeSpinner = new JSpinner(fontSizeModel.getSpinnerModel());
-		fontSizeSpinner.setEditor(new SpinnerEditor(fontSizeSpinner));
-		this.add(fontSizeSpinner, "growx, wrap");
-
-		//// You need to restart OpenRocket for the theme change to take effect.
-		final JLabel lblRestartORTheme = new JLabel();
-		lblRestartORTheme.setForeground(GUIUtil.getUITheme().getDarkErrorColor());
-		this.add(lblRestartORTheme, "spanx, wrap para*2, growx");
-
-		fontSizeSpinner.addChangeListener(new ChangeListener() {
-			@Override
-			public void stateChanged(ChangeEvent e) {
-				if (fontSizeModel.getValue() == currentFontSize) {
-					lblRestartORTheme.setText("");
-					return;
-				}
-				lblRestartORTheme.setText(trans.get("generalprefs.lbl.themeRestartOR"));
-			}
-		});
-		themesCombo.addActionListener(new ActionListener() {
-			@Override
-			@SuppressWarnings("unchecked")
-			public void actionPerformed(ActionEvent e) {
-				Named<UITheme.Theme> selection = (Named<UITheme.Theme>) themesCombo.getSelectedItem();
-				if (selection == null) return;
-				UITheme.Theme t = selection.get();
-				if (t == currentTheme) {
-					lblRestartORTheme.setText("");
-					return;
-				}
-				preferences.setUITheme(t);
-				lblRestartORTheme.setText(trans.get("generalprefs.lbl.themeRestartOR"));
-			}
-		});
+		this.add(new JSeparator(JSeparator.HORIZONTAL), "spanx, growx, wrap para");
 
 		//// User-defined thrust curves:
 		this.add(new JLabel(trans.get("pref.dlg.lbl.User-definedthrust")), "spanx, wrap");
@@ -180,7 +107,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 			
 			private void changed() {
 				String text = field.getText();
-				List<File> list = new ArrayList<File>();
+				List<File> list = new ArrayList<>();
 				for (String s : text.split(";")) {
 					s = s.trim();
 					if (s.length() > 0) {
@@ -193,7 +120,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		this.add(field, "w 100px, gapright unrel, spanx, growx, split");
 		
 		//// Add button
-		JButton button = new SelectColorButton(trans.get("pref.dlg.but.add"));
+		JButton button = new JButton(trans.get("pref.dlg.but.add"));
 		button.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -236,7 +163,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		this.add(button, "gapright unrel");
 		
 		//// Reset button
-		button = new SelectColorButton(trans.get("pref.dlg.but.reset"));
+		button = new JButton(trans.get("pref.dlg.but.reset"));
 		
 		button.addActionListener(new ActionListener() {
 			@Override
@@ -252,10 +179,94 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		DescriptionArea desc = new DescriptionArea(trans.get("pref.dlg.DescriptionArea.Adddirectories"), 3, -1.5f, false);
 		desc.setBackground(GUIUtil.getUITheme().getBackgroundColor());
 		desc.setForeground(GUIUtil.getUITheme().getTextColor());
-		this.add(desc, "spanx, growx, wrap 40lp");
-		
-		
-		
+		this.add(desc, "spanx, growx, wrap unrel");
+
+		//// User-defined component presets:
+		this.add(new JLabel(trans.get("pref.dlg.lbl.User-definedComponentPreset")), "spanx, wrap");
+		final JTextField fieldCompPres = new JTextField();
+		str = preferences.getUserComponentPresetFilesAsString();
+		fieldCompPres.setText(str);
+		fieldCompPres.getDocument().addDocumentListener(new DocumentListener() {
+			@Override
+			public void removeUpdate(DocumentEvent e) {
+				changed();
+			}
+
+			@Override
+			public void insertUpdate(DocumentEvent e) {
+				changed();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e) {
+				changed();
+			}
+
+			private void changed() {
+				String text = fieldCompPres.getText();
+				List<File> list = new ArrayList<>();
+				for (String s : text.split(";")) {
+					s = s.trim();
+					if (s.length() > 0) {
+						list.add(new File(s));
+					}
+				}
+				preferences.setUserComponentPresetFiles(list);
+			}
+		});
+		this.add(fieldCompPres, "w 100px, gapright unrel, spanx, growx, split");
+
+		//// Add button
+		button = new JButton(trans.get("pref.dlg.but.add"));
+		button.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				JFileChooser chooser = new JFileChooser();
+				SimpleFileFilter filter =
+						new SimpleFileFilter(
+								trans.get("pref.dlg.AllComponentPresetfiles"),
+								true, "orc");
+				chooser.addChoosableFileFilter(filter);
+				//// OpenRocket component files (*.orc)
+				chooser.addChoosableFileFilter(new SimpleFileFilter(trans.get("pref.dlg.ORCfiles"),
+						true, "orc"));
+				chooser.setFileFilter(filter);
+				chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+				if (defaultDirectory != null) {
+					chooser.setCurrentDirectory(defaultDirectory);
+				}
+
+				//// Add
+				int returnVal = chooser.showDialog(GeneralPreferencesPanel.this, trans.get("pref.dlg.Add"));
+				if (returnVal == JFileChooser.APPROVE_OPTION) {
+					log.info(Markers.USER_MARKER, "Adding component preset file: " + chooser.getSelectedFile());
+					defaultDirectory = chooser.getCurrentDirectory();
+					String text = fieldCompPres.getText().trim();
+					if (text.length() > 0) {
+						text += ";";
+					}
+					text += chooser.getSelectedFile().getAbsolutePath();
+					fieldCompPres.setText(text);
+				}
+			}
+		});
+		this.add(button, "gapright unrel");
+
+		//// Reset button
+		button = new JButton(trans.get("pref.dlg.but.reset"));
+
+		button.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				// First one sets to the default, but does not un-set the pref
+				fieldCompPres.setText(preferences.getDefaultUserComponentFile().getAbsolutePath());
+				preferences.setUserComponentPresetFiles(null);
+			}
+		});
+		this.add(button, "wrap");
+
+		this.add(new JSeparator(JSeparator.HORIZONTAL), "spanx, growx, wrap para");
+
 
 		//// Check for software updates at startup
 		final JCheckBox softwareUpdateBox =
@@ -270,13 +281,13 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		this.add(softwareUpdateBox);
 		
 		//// Check now button
-		button = new SelectColorButton(trans.get("pref.dlg.but.checknow"));
+		button = new JButton(trans.get("pref.dlg.but.checknow"));
 		//// Check for software updates now
 		button.setToolTipText(trans.get("pref.dlg.ttip.Checkupdatesnow"));
 		button.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				checkForUpdates();
+				UpdateInfoRunner.checkForUpdates(parent);
 			}
 		});
 		this.add(button, "right, wrap");
@@ -341,7 +352,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		JPanel buttonPanel = new JPanel(new MigLayout("fillx, ins 0"));
 
 		//// Import preferences
-		final JButton importPreferences = new SelectColorButton(trans.get("pref.dlg.but.importPreferences"));
+		final JButton importPreferences = new JButton(trans.get("pref.dlg.but.importPreferences"));
 		importPreferences.setToolTipText(trans.get("pref.dlg.but.importPreferences.ttip"));
 		importPreferences.addActionListener(new ActionListener() {
 			@Override
@@ -368,7 +379,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		buttonPanel.add(importPreferences);
 
 		//// Export preferences
-		final JButton exportPreferences = new SelectColorButton(trans.get("pref.dlg.but.exportPreferences"));
+		final JButton exportPreferences = new JButton(trans.get("pref.dlg.but.exportPreferences"));
 		exportPreferences.setToolTipText(trans.get("pref.dlg.but.exportPreferences.ttip"));
 		exportPreferences.addActionListener(new ActionListener() {
 			@Override
@@ -379,7 +390,7 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		buttonPanel.add(exportPreferences);
 
 		//// Reset all preferences
-		final JButton resetAllPreferences = new SelectColorButton(trans.get("pref.dlg.but.resetAllPreferences"));
+		final JButton resetAllPreferences = new JButton(trans.get("pref.dlg.but.resetAllPreferences"));
 		resetAllPreferences.setToolTipText(trans.get("pref.dlg.but.resetAllPreferences.ttip"));
 		resetAllPreferences.addActionListener(new ActionListener() {
 			@Override
@@ -404,110 +415,5 @@ public class GeneralPreferencesPanel extends PreferencesPanel {
 		buttonPanel.add(resetAllPreferences, "pushx, right, gaptop 20lp, wrap");
 
 		this.add(buttonPanel, "spanx, growx, pushy, bottom, wrap");
-	}
-
-
-	private void checkForUpdates() {
-		final UpdateInfoRetriever retriever = new UpdateInfoRetriever();
-		retriever.startFetchUpdateInfo();
-		
-		
-		// Progress dialog
-		final JDialog dialog1 = new JDialog(this.parentDialog, ModalityType.APPLICATION_MODAL);
-		JPanel panel = new JPanel(new MigLayout());
-		
-		//// Checking for updates...
-		panel.add(new JLabel(trans.get("pref.dlg.lbl.Checkingupdates")), "wrap");
-		
-		JProgressBar bar = new JProgressBar();
-		bar.setIndeterminate(true);
-		panel.add(bar, "growx, wrap para");
-		
-		//// Cancel button
-		JButton cancel = new SelectColorButton(trans.get("dlg.but.cancel"));
-		cancel.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				dialog1.dispose();
-			}
-		});
-		panel.add(cancel, "right");
-		dialog1.add(panel);
-		
-		GUIUtil.setDisposableDialogOptions(dialog1, cancel);
-		
-		
-		// Timer to monitor progress
-		final Timer timer = new Timer(100, null);
-		final long startTime = System.currentTimeMillis();
-		
-		ActionListener listener = new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				if (!retriever.isRunning() || startTime + 10000 < System.currentTimeMillis()) {
-					timer.stop();
-					dialog1.dispose();
-				}
-			}
-		};
-		timer.addActionListener(listener);
-		timer.start();
-		
-		
-		// Wait for action
-		dialog1.setVisible(true);
-		
-		
-		// Check result
-		UpdateInfo info = retriever.getUpdateInfo();
-
-		// Something went wrong
-		if (info == null) {
-			JOptionPane.showMessageDialog(this,
-					//// An error occurred while communicating with the server.
-					trans.get("update.dlg.error"),
-					//// Unable to retrieve update information
-					trans.get("update.dlg.error.title"), JOptionPane.WARNING_MESSAGE, null);
-			return;
-		}
-
-		// Something went wrong, but we know what went wrong
-		if (info.getException() != null) {
-			JOptionPane.showMessageDialog(this,
-					info.getException().getMessage(),
-					trans.get("update.dlg.exception.title"), JOptionPane.WARNING_MESSAGE, null);
-			return;
-		}
-
-		// Nothing went wrong (yay!)
-		ReleaseStatus status = info.getReleaseStatus();
-		ReleaseInfo release = info.getLatestRelease();
-
-		// Do nothing if the release is part of the ignore versions
-		if (preferences.getIgnoreUpdateVersions().contains(release.getReleaseName())) {
-			return;
-		}
-
-		// Display software updater dialog, based on the current build version status
-		switch (status) {
-			case LATEST:
-				JOptionPane.showMessageDialog(this,
-						//// You are running the latest version of OpenRocket.
-						String.format(trans.get("update.dlg.latestVersion"), BuildProperties.getVersion()),
-						//// No updates available
-						trans.get("update.dlg.latestVersion.title"), JOptionPane.INFORMATION_MESSAGE, null);
-				break;
-			case NEWER:
-				JOptionPane.showMessageDialog(this,
-						//// You are running a newer version than the latest official release
-						String.format("<html><body><p style='width: %dpx'>%s", 400, String.format(trans.get("update.dlg.newerVersion"),
-								BuildProperties.getVersion(), release.getReleaseName())),
-						//// Newer version detected
-						trans.get("update.dlg.newerVersion.title"), JOptionPane.INFORMATION_MESSAGE, null);
-				break;
-			case OLDER:
-				UpdateInfoDialog infoDialog = new UpdateInfoDialog(info);
-				infoDialog.setVisible(true);
-		}
 	}
 }

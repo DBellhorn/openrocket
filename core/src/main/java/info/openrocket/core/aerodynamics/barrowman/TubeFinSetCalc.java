@@ -6,7 +6,6 @@ import info.openrocket.core.aerodynamics.AerodynamicForces;
 import info.openrocket.core.aerodynamics.FlightConditions;
 import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
-import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.TubeFinSet;
 import info.openrocket.core.util.Coordinate;
@@ -49,16 +48,18 @@ public class TubeFinSetCalc extends TubeCalc {
 
 	public TubeFinSetCalc(RocketComponent component) {
 		super(component);
+
 		if (!(component instanceof TubeFinSet)) {
 			throw new IllegalArgumentException("Illegal component type " + component);
 		}
 		
 		tubes = (TubeFinSet) component;
-
-		if (tubes.getTubeSeparation() > MathUtil.EPSILON) {
-			geometryWarnings.add(Warning.TUBE_SEPARATION);
+		if (tubes.getFinCount() == 1) {
+			geometryWarnings.add(Warning.TUBE_ISOLATED, tubes);
+		} else if (tubes.getTubeSeparation() > MathUtil.EPSILON) {
+			geometryWarnings.add(Warning.TUBE_SEPARATION, tubes);
 		} else if (tubes.getTubeSeparation() < -MathUtil.EPSILON) {
-			geometryWarnings.add(Warning.TUBE_OVERLAP);
+			geometryWarnings.add(Warning.TUBE_OVERLAP, tubes);
 		}
 
 		bodyRadius = tubes.getBodyRadius();
@@ -143,6 +144,8 @@ public class TubeFinSetCalc extends TubeCalc {
 	public void calculateNonaxialForces(FlightConditions conditions, Transformation transform,
 			AerodynamicForces forces, WarningSet warnings) {
 
+		warnings.addAll(geometryWarnings);
+		
 		if (outerRadius < 0.001) {
 			forces.setCm(0);
 			forces.setCN(0);
@@ -230,8 +233,8 @@ public class TubeFinSetCalc extends TubeCalc {
 		double x = 1.0;
 		double val = 0;
 
-		for (int i = 0; i < poly.length; i++) {
-			val += poly[i] * x;
+		for (double v : poly) {
+			val += v * x;
 			x *= m;
 		}
 		// log.debug("val = {}", val);

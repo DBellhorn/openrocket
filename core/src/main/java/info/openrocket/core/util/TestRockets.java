@@ -10,7 +10,6 @@ import info.openrocket.core.database.Databases;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.OpenRocketDocumentFactory;
 import info.openrocket.core.document.Simulation;
-import info.openrocket.core.document.StorageOptions;
 import info.openrocket.core.file.openrocket.OpenRocketSaver;
 import info.openrocket.core.logging.ErrorSet;
 import info.openrocket.core.logging.WarningSet;
@@ -60,7 +59,9 @@ import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.core.rocketcomponent.Transition.Shape;
 import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
 import info.openrocket.core.rocketcomponent.TubeCoupler;
-import info.openrocket.core.rocketcomponent.position.*;
+import info.openrocket.core.rocketcomponent.position.AngleMethod;
+import info.openrocket.core.rocketcomponent.position.AxialMethod;
+import info.openrocket.core.rocketcomponent.position.RadiusMethod;
 import info.openrocket.core.simulation.customexpression.CustomExpression;
 import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.extension.impl.ScriptingExtension;
@@ -134,8 +135,8 @@ public class TestRockets {
 				.setTimePoints(new double[] { 0, 1, 2 })
 				.setThrustPoints(new double[] { 0, 9, 0 })
 				.setCGPoints(new Coordinate[] {
-						new Coordinate(0.035, 0, 0, 0.0164), new Coordinate(.035, 0, 0, 0.0145),
-						new Coordinate(.035, 0, 0, 0.0131) })
+						new Coordinate(0.035, 0, 0, 0.0164), new Coordinate(0.035, 0, 0, 0.0145),
+						new Coordinate(0.035, 0, 0, 0.0131) })
 				.setDigest("digest A8 test")
 				.build();
 	}
@@ -151,32 +152,16 @@ public class TestRockets {
 				.setStandardDelays(new double[] {0,3})
 				.setDiameter(0.013)
 				.setLength(0.045)
-				.setTimePoints(new double[] {0.0, 0.026, 0.055, 0.093, 0.124, 0.146, 0.166, 0.179, 0.194, 0.203, 0.209, 0.225, 0.26, 0.333, 0.456, 0.575, 0.663, 0.76, 0.811, 0.828, 0.85})
-			.	setThrustPoints(new double[] {0.0, 0.478, 1.919, 4.513, 8.165, 10.956, 12.64, 11.046, 7.966, 6.042, 3.154, 1.421, 1.225, 1.41, 1.206, 1.195, 1.282, 1.273, 1.268, 0.689, 0.0})
-				.setCGPoints(new Coordinate[] {
-						new Coordinate(0.0225, 0, 0, 3.8),
-						new Coordinate(0.0225, 0, 0, 3.78818),
-						new Coordinate(0.0225, 0, 0, 3.72207),
-						new Coordinate(0.0225, 0, 0, 3.48963),
-						new Coordinate(0.0225, 0, 0, 3.11587),
-						new Coordinate(0.0225, 0, 0, 2.71582),
-						new Coordinate(0.0225, 0, 0, 2.26703),
-						new Coordinate(0.0225, 0, 0, 1.97419),
-						new Coordinate(0.0225, 0, 0, 1.70299),
-						new Coordinate(0.0225, 0, 0, 1.58309),
-						new Coordinate(0.0225, 0, 0, 1.53062),
-						new Coordinate(0.0225, 0, 0, 1.46101),
-						new Coordinate(0.0225, 0, 0, 1.37293),
-						new Coordinate(0.0225, 0, 0, 1.19),
-						new Coordinate(0.0225, 0, 0, 0.884002),
-						new Coordinate(0.0225, 0, 0, 0.612283),
-						new Coordinate(0.0225, 0, 0, 0.404987),
-						new Coordinate(0.0225, 0, 0, 0.169296),
-						new Coordinate(0.0225, 0, 0, 0.0460542),
-						new Coordinate(0.0225, 0, 0, 0.0144153),
-						new Coordinate(0.0225, 0, 0, 0.0)})
-				.setDigest("digest A10 test")
-				.build();
+			.setTimePoints(new double[] {0.0, 0.2, 0.3, 1.04, 1.05})
+			.setThrustPoints(new double[] {0.0, 10, 1, 1, 0})
+			.setCGPoints(new Coordinate[] {
+					new Coordinate(0.0225, 0, 0, 0.011),
+					new Coordinate(0.0225, 0, 0, 0.009),
+					new Coordinate(0.0225, 0, 0, 0.008),
+					new Coordinate(0.0225, 0, 0, 0.003),
+					new Coordinate(0.0225, 0, 0, 0.003)})
+			.setDigest("digest A10 test")
+			.build();
 	}
 
 	// This function is used for unit, integration tests, DO NOT CHANGE (without updating tests).
@@ -193,8 +178,8 @@ public class TestRockets {
 				.setTimePoints(new double[] { 0, 1, 2 })
 				.setThrustPoints(new double[] { 0, 11.4, 0 })
 				.setCGPoints(new Coordinate[] {
-						new Coordinate(0.035, 0, 0, 0.0195), new Coordinate(.035, 0, 0, 0.0155),
-						new Coordinate(.035, 0, 0, 0.013) })
+						new Coordinate(0.035, 0, 0, 0.0195), new Coordinate(0.035, 0, 0, 0.0155),
+						new Coordinate(0.035, 0, 0, 0.013) })
 				.setDigest("digest B4 test")
 				.build();
 	}
@@ -211,11 +196,14 @@ public class TestRockets {
 				.setStandardDelays(new double[] { 0, 3, 5, 7 })
 				.setDiameter(0.018)
 				.setLength(0.070)
-				.setTimePoints(new double[] { 0, 1, 2 })
-				.setThrustPoints(new double[] { 0, 6, 0 })
+			.setTimePoints(new double[] { 0, 0.2, 0.4, 2.0, 2.1 })
+			.setThrustPoints(new double[] { 0, 12, 5, 5, 0 })
 				.setCGPoints(new Coordinate[] {
-						new Coordinate(0.035, 0, 0, 0.0227), new Coordinate(.035, 0, 0, 0.0165),
-						new Coordinate(.035, 0, 0, 0.012) })
+						new Coordinate(0.035, 0, 0, 0.0227),
+						new Coordinate(0.035, 0, 0, 0.0165),
+						new Coordinate(0.035, 0, 0, 0.0165),
+						new Coordinate(0.035, 0, 0, 0.013),
+						new Coordinate(0.035, 0, 0, 0.012) })
 				.setDigest("digest C6 test")
 				.build();
 	}
@@ -235,8 +223,8 @@ public class TestRockets {
 				.setTimePoints(new double[] { 0, 1, 2 })
 				.setThrustPoints(new double[] { 0, 32, 0 })
 				.setCGPoints(new Coordinate[] {
-						new Coordinate(.035, 0, 0, 0.025), new Coordinate(.035, 0, 0, .020),
-						new Coordinate(.035, 0, 0, 0.0154) })
+						new Coordinate(0.035, 0, 0, 0.025), new Coordinate(0.035, 0, 0, 0.020),
+						new Coordinate(0.035, 0, 0, 0.0154) })
 				.setDigest("digest D21 test")
 				.build();
 	}
@@ -256,8 +244,8 @@ public class TestRockets {
 				.setTimePoints(new double[] { 0, 1, 2 })
 				.setThrustPoints(new double[] { 0, 1357, 0 })
 				.setCGPoints(new Coordinate[] {
-						new Coordinate(.311, 0, 0, 4.808), new Coordinate(.311, 0, 0, 3.389),
-						new Coordinate(.311, 0, 0, 1.970) })
+						new Coordinate(0.311, 0, 0, 4.808), new Coordinate(0.311, 0, 0, 3.389),
+						new Coordinate(0.311, 0, 0, 1.970) })
 				.setDigest("digest M1350 test")
 				.build();
 	}
@@ -277,8 +265,8 @@ public class TestRockets {
 				.setTimePoints(new double[] { 0, 1, 2 })
 				.setThrustPoints(new double[] { 0, 20, 0 })
 				.setCGPoints(new Coordinate[] {
-						new Coordinate(.062, 0, 0, 0.123), new Coordinate(.062, 0, 0, .0935),
-						new Coordinate(.062, 0, 0, 0.064) })
+						new Coordinate(0.062, 0, 0, 0.123), new Coordinate(0.062, 0, 0, 0.0935),
+						new Coordinate(0.062, 0, 0, 0.064) })
 				.setDigest("digest G77 test")
 				.build();
 	}
@@ -482,8 +470,8 @@ public class TestRockets {
 		TrapezoidFinSet finset;
 		{
 			int finCount = 3;
-			double finRootChord = .05;
-			double finTipChord = .03;
+			double finRootChord = 0.05;
+			double finTipChord = 0.03;
 			double finSweep = 0.02;
 			double finHeight = 0.05;
 			finset = new TrapezoidFinSet(finCount, finRootChord, finTipChord, finSweep, finHeight);
@@ -647,15 +635,15 @@ public class TestRockets {
 				boosterBody.addChild(coupler);
 
 				int finCount = 3;
-				double finRootChord = .05;
-				double finTipChord = .03;
+				double finRootChord = 0.05;
+				double finTipChord = 0.03;
 				double finSweep = 0.02;
 				double finHeight = 0.05;
 				FinSet finset = new TrapezoidFinSet(finCount, finRootChord, finTipChord, finSweep, finHeight);
 				finset.setName("Booster Fins");
 				finset.setThickness(0.0032);
 				finset.setAxialMethod(AxialMethod.BOTTOM);
-				finset.setAxialOffset(0.);
+				finset.setAxialOffset(0.0);
 				boosterBody.addChild(finset);
 
 				// Motor mount
@@ -1195,7 +1183,7 @@ public class TestRockets {
 
 	// This is a rocket with two axial stages and side boosters for multi-stage event tests.
 	// It's like a Falcon 9 Heavy (see above), but vastly simplified so it can be checked by hand
-	// if needed, and (more importantly) aerodynamically stable. It lacks a lot of the internal
+	// if needed, and (more importantly) aerodynamically stable until sustainer separation. It lacks a lot of the internal
 	// structure that's required by a real rocket
 	public static Rocket makeMultiStageEventTestRocket() {
 
@@ -1238,13 +1226,6 @@ public class TestRockets {
 			parachute.setName("Sustainer Parachute");
 			parachute.setDiameter(CHUTE_DIAM);
 			bodyTube.addChild(parachute);
-
-			final double POSITION = 0.0;
-			TrapezoidFinSet finSet = new TrapezoidFinSet(NUM_FINS, ROOT_CHORD, TIP_CHORD, SWEEP, HEIGHT);
-			finSet.setName("Sustainer Fin Set");
-			finSet.setAxialMethod(AxialMethod.BOTTOM);
-			finSet.setAxialOffset(POSITION);
-			bodyTube.addChild(finSet);
 		}
 
 		// Center Booster
@@ -1291,6 +1272,12 @@ public class TestRockets {
 			bodyTube.setName("Side Booster Body Tubes");
 			bodyTube.setMotorMount(true);
 			sideBoosters.addChild(bodyTube);
+
+			final double CHUTE_DIAM = 0.3;
+			Parachute parachute = new Parachute();
+			parachute.setName("Side Chutes");
+			parachute.setDiameter(CHUTE_DIAM);
+			bodyTube.addChild(parachute);
 
 			MotorConfiguration motorConfig = new MotorConfiguration(bodyTube, selFCID);
 			motorConfig.setMotor(TestRockets.generateMotor_A10_13mm());
@@ -1473,7 +1460,7 @@ public class TestRockets {
 		// make fins with fin tabs and add to body tube
 		TrapezoidFinSet fins = new TrapezoidFinSet();
 		fins.setFinCount(3);
-		fins.setFinShape(1.0, 1.0, 0.0, 1.0, .005);
+		fins.setFinShape(1.0, 1.0, 0.0, 1.0, 0.005);
 		fins.setTabHeight(0.25);
 		fins.setTabLength(0.25);
 		bodyTube.addChild(fins);
@@ -1861,7 +1848,7 @@ public class TestRockets {
 
 		TrapezoidFinSet fins1 = new TrapezoidFinSet();
 		fins1.setFinCount(3);
-		fins1.setFinShape(1.5, 1.5, 0.0, 1.5, .005);
+		fins1.setFinShape(1.5, 1.5, 0.0, 1.5, 0.005);
 		bodyTube1.addChild(fins1);
 
 		// make 1st stage recovery device with deployment config in default
@@ -1888,7 +1875,7 @@ public class TestRockets {
 		// make 2nd stage fins
 		TrapezoidFinSet fins2 = new TrapezoidFinSet();
 		fins2.setFinCount(3);
-		fins2.setFinShape(1.0, 1.0, 0.0, 1.0, .005);
+		fins2.setFinShape(1.0, 1.0, 0.0, 1.0, 0.005);
 		bodyTube2.addChild(fins2);
 
 		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
@@ -1897,6 +1884,8 @@ public class TestRockets {
 		Simulation simulation1 = new Simulation(rocket);
 		simulation1.getOptions().setISAAtmosphere(false); // helps cover code in saveComponent()
 		simulation1.getOptions().setTimeStep(0.05);
+		simulation1.getOptions().setLaunchPressure(100000);
+		simulation1.getOptions().setLaunchTemperature(288);
 		rocketDoc.addSimulation(simulation1);
 
 		Simulation simulation2 = new Simulation(rocket);
@@ -2011,6 +2000,67 @@ public class TestRockets {
 		return rocket;
 
 	}
+
+	/**
+	 * This is an incomplete rocket; just enough so we can see if clusters and
+	 * pods multiply thrust appropriately.
+	 *
+	 * center motor mount is a two-motor cluster
+	 * three pods, each containing a four-motor cluster
+	 * resulting thrust should 14 times the thrust of a single motor
+	 */
+	public static final Rocket makeClusterPods() {
+
+		Rocket rocket = new Rocket();
+
+		FlightConfigurationId selFCID = rocket.createFlightConfiguration(new FlightConfigurationId()).getFlightConfigurationID();
+
+		// Sustainer
+		AxialStage sustainer = new AxialStage();
+		sustainer.setName("Sustainer");
+		rocket.addChild(sustainer);
+
+		// Sustainer body tube
+		BodyTube sustainerBodyTube = new BodyTube();
+		sustainerBodyTube.setName("Sustainer Body Tube");
+		sustainer.addChild(sustainerBodyTube);
+
+		// Inner tubes for motor mount cluster
+		InnerTube sustainerMotorMount = new InnerTube();
+		sustainerMotorMount.setMotorMount(true);
+		sustainerMotorMount.setClusterConfiguration(ClusterConfiguration.CONFIGURATIONS[1]); // two motors
+		sustainerBodyTube.addChild(sustainerMotorMount);
+		
+		MotorConfiguration sustainerMotorConfig = new MotorConfiguration(sustainerMotorMount, selFCID);
+		sustainerMotorConfig.setMotor(TestRockets.generateMotor_C6_18mm());
+		sustainerMotorConfig.setIgnitionEvent(IgnitionEvent.LAUNCH);
+		sustainerMotorMount.setMotorConfig(sustainerMotorConfig, selFCID);
+		
+		// Three Side Boosters
+		ParallelStage sideBoosters = new ParallelStage(3);
+		sustainerBodyTube.addChild(sideBoosters);
+
+		BodyTube sideBodyTubes = new BodyTube();
+		sideBodyTubes.setName("Side Booster Body Tubes");
+		sideBoosters.addChild(sideBodyTubes);
+
+		// Each side booster has a four-motor cluster
+		InnerTube sideBoosterMounts = new InnerTube();
+		sideBoosterMounts.setMotorMount(true);
+		sideBoosterMounts.setClusterConfiguration(ClusterConfiguration.CONFIGURATIONS[3]); // four motors
+		sideBodyTubes.addChild(sideBoosterMounts);
+		
+		MotorConfiguration sideMotorConfig = new MotorConfiguration(sideBoosterMounts, selFCID);
+		sideMotorConfig.setMotor(TestRockets.generateMotor_C6_18mm());
+		sideMotorConfig.setIgnitionEvent(IgnitionEvent.LAUNCH);
+		sideBoosterMounts.setMotorConfig(sideMotorConfig, selFCID);
+
+		rocket.enableEvents();
+		rocket.setSelectedConfiguration(selFCID);
+
+		return rocket;
+	}
+		
 
 	/**
 	 * dump a test rocket to a file, so we can open it in OR

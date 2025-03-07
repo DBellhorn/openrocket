@@ -1,5 +1,6 @@
 package info.openrocket.swing.communication;
 
+import info.openrocket.core.communication.UpdateInfoRetriever;
 import info.openrocket.swing.gui.util.SwingPreferences;
 import info.openrocket.core.startup.Application;
 
@@ -57,9 +58,9 @@ public class AssetHandler {
         if (urls == null) return null;
 
         for (String url : urls) {
-            for (String ext : mapExtensionToPlatform.keySet()) {
-                if (url.endsWith(ext)) {
-                    output.put(mapExtensionToPlatform.get(ext)[0], url);    // First Platform element is enough
+            for (Map.Entry<String, UpdatePlatform[]> entry : mapExtensionToPlatform.entrySet()) {
+                if (url.endsWith(entry.getKey())) {
+                    output.put(entry.getValue()[0], url);    // First Platform element is enough
                 }
             }
         }
@@ -73,14 +74,45 @@ public class AssetHandler {
      * @return URL to download the installer for the given platform
      */
     public static String getInstallerURLForPlatform(UpdatePlatform platform, String version) {
-        for (UpdatePlatform[] platforms : mapPlatformToURL.keySet()) {
-            for (UpdatePlatform p : platforms) {
+        // If it is not an official release, use the GitHub download link
+        if (UpdateInfoRetriever.UpdateInfoFetcher.isOfficialRelease(version)) {
+            return getWebsiteDownloadURL(platform, version);
+        } else {
+            return getGitHubDownloadURL(version);
+        }
+
+
+    }
+
+    /**
+     * Returns the URL to download the installer for the given version from the OpenRocket website.
+     * @param platform platform to get the installer URL for; or null to get to the general download page
+     * @param version version of the installer to download
+     * @return URL to download the installer for the given version
+     */
+    private static String getWebsiteDownloadURL(UpdatePlatform platform, String version) {
+        // If the platform is null, return the general download URL
+        if (platform == null) {
+            return String.format("https://openrocket.info/downloads.html?vers=%s", version);
+        }
+
+        for (Map.Entry<UpdatePlatform[], String> entry : mapPlatformToURL.entrySet()) {
+            for (UpdatePlatform p : entry.getKey()) {
                 if (p == platform) {
-                    return String.format(mapPlatformToURL.get(platforms), version);
+                    return String.format(entry.getValue(), version);
                 }
             }
         }
         return null;
+    }
+
+    /**
+     * Returns the URL to download the installer for the given version from the GitHub releases page.
+     * @param version version of the installer to download
+     * @return URL to download the installer for the given version
+     */
+    private static String getGitHubDownloadURL(String version) {
+        return String.format("https://github.com/openrocket/openrocket/releases/tag/release-%s", version);
     }
 
     /**

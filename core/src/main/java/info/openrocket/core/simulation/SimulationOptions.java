@@ -6,6 +6,10 @@ import java.util.EventObject;
 import java.util.List;
 import java.util.Random;
 
+import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
+import info.openrocket.core.models.wind.WindModel;
+import info.openrocket.core.models.wind.WindModelType;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +21,6 @@ import info.openrocket.core.models.gravity.GravityModel;
 import info.openrocket.core.models.gravity.WGSGravityModel;
 import info.openrocket.core.models.wind.PinkNoiseWindModel;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.startup.Preferences;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.ChangeSource;
 import info.openrocket.core.util.GeodeticComputationStrategy;
@@ -44,21 +47,17 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	 */
 	private static final AtmosphericModel ISA_ATMOSPHERIC_MODEL = new ExtendedISAModel();
 
-	protected final Preferences preferences = Application.getPreferences();
+	protected final ApplicationPreferences preferences = Application.getPreferences();
 
 	/*
 	 * NOTE:  When adding/modifying parameters, they must also be added to the
 	 * equals and copyFrom methods!!
 	 */
 
-	private double launchRodLength = preferences.getDouble(Preferences.LAUNCH_ROD_LENGTH, 1);
-	private boolean launchIntoWind = preferences.getBoolean(Preferences.LAUNCH_INTO_WIND, true);
-	private double launchRodAngle = preferences.getDouble(Preferences.LAUNCH_ROD_ANGLE, 0);
-	private double windDirection = preferences.getDouble(Preferences.WIND_DIRECTION, Math.PI / 2);
-	private double launchRodDirection = preferences.getDouble(Preferences.LAUNCH_ROD_DIRECTION, Math.PI / 2);
-
-	private double windAverage = preferences.getDouble(Preferences.WIND_AVERAGE, 2.0);
-	private double windTurbulence = preferences.getDouble(Preferences.WIND_TURBULENCE, 0.1);
+	private double launchRodLength = preferences.getDouble(ApplicationPreferences.LAUNCH_ROD_LENGTH, 1);
+	private boolean launchIntoWind = preferences.getBoolean(ApplicationPreferences.LAUNCH_INTO_WIND, true);
+	private double launchRodAngle = preferences.getDouble(ApplicationPreferences.LAUNCH_ROD_ANGLE, 0);
+	private double launchRodDirection = preferences.getDouble(ApplicationPreferences.LAUNCH_ROD_DIRECTION, Math.PI / 2);
 
 	/*
 	 * SimulationOptions maintains the launch site parameters as separate double values,
@@ -75,13 +74,22 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private double launchPressure = preferences.getLaunchPressure();		// In Pascal
 	
 	private double timeStep = preferences.getTimeStep();
+	private double maxSimulationTime = preferences.getMaxSimulationTime();
 	private double maximumAngle = RK4SimulationStepper.RECOMMENDED_ANGLE_STEP;
 	
 	private int randomSeed = new Random().nextInt();
 
-	private List<EventListener> listeners = new ArrayList<EventListener>();
+	private List<EventListener> listeners = new ArrayList<>();
+
+	private WindModelType windModelType = WindModelType.AVERAGE;
+	private PinkNoiseWindModel averageWindModel;
+	private MultiLevelPinkNoiseWindModel multiLevelPinkNoiseWindModel;
 
 	public SimulationOptions() {
+		averageWindModel = new PinkNoiseWindModel(randomSeed);
+		averageWindModel.addChangeListener(e -> fireChangeEvent());
+		multiLevelPinkNoiseWindModel = new MultiLevelPinkNoiseWindModel();
+		multiLevelPinkNoiseWindModel.addChangeListener(e -> fireChangeEvent());
 	}
 
 	public double getLaunchRodLength() {
@@ -120,6 +128,12 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 
 	public double getLaunchRodDirection() {
 		if (launchIntoWind) {
+			double windDirection;
+			if (windModelType == WindModelType.AVERAGE) {
+				windDirection = averageWindModel.getDirection();
+			} else {
+				windDirection = multiLevelPinkNoiseWindModel.getWindDirection(0, launchAltitude);
+			}
 			this.setLaunchRodDirection(windDirection);
 		}
 		return launchRodDirection;
@@ -133,57 +147,82 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		fireChangeEvent();
 	}
 
+	public WindModelType getWindModelType() {
+		return windModelType;
+	}
+
+	public void setWindModelType(WindModelType windModelType) {
+		if (this.windModelType != windModelType) {
+			this.windModelType = windModelType;
+			fireChangeEvent();
+		}
+	}
+
+	public WindModel getWindModel() {
+		if (windModelType == WindModelType.AVERAGE) {
+			return averageWindModel;
+		} else if (windModelType == WindModelType.MULTI_LEVEL) {
+			return multiLevelPinkNoiseWindModel;
+		} else {
+			throw new IllegalArgumentException("Unknown wind model type: " + windModelType);
+		}
+	}
+
+	public PinkNoiseWindModel getAverageWindModel() {
+		return averageWindModel;
+	}
+
+	public MultiLevelPinkNoiseWindModel getMultiLevelWindModel() {
+		return multiLevelPinkNoiseWindModel;
+	}
+
+	// Deprecated wind methods to keep compatibility with old plugins (e.g. the original multi-level wind code)
+	@Deprecated
 	public double getWindSpeedAverage() {
-		return windAverage;
+		setWindModelType(WindModelType.AVERAGE);
+		return averageWindModel.getAverage();
 	}
 
+	@Deprecated
 	public void setWindSpeedAverage(double windAverage) {
-		if (MathUtil.equals(this.windAverage, windAverage))
-			return;
-		this.windAverage = MathUtil.max(windAverage, 0);
-		if (MathUtil.equals(this.windAverage, 0)) {
-			setWindTurbulenceIntensity(0);
-		}
-		fireChangeEvent();
+		setWindModelType(WindModelType.AVERAGE);
+		averageWindModel.setAverage(windAverage);
 	}
 
+	@Deprecated
 	public double getWindSpeedDeviation() {
-		return windAverage * windTurbulence;
+		setWindModelType(WindModelType.AVERAGE);
+		return averageWindModel.getStandardDeviation();
 	}
 
+	@Deprecated
 	public void setWindSpeedDeviation(double windDeviation) {
-		if (windAverage < 0.1) {
-			windAverage = 0.1;
-		}
-		setWindTurbulenceIntensity(windDeviation / windAverage);
+		setWindModelType(WindModelType.AVERAGE);
+		averageWindModel.setStandardDeviation(windDeviation);
 	}
 
+	@Deprecated
 	public double getWindTurbulenceIntensity() {
-		return windTurbulence;
+		setWindModelType(WindModelType.AVERAGE);
+		return averageWindModel.getTurbulenceIntensity();
 	}
 
+	@Deprecated
 	public void setWindTurbulenceIntensity(double intensity) {
-		// Does not check equality so that setWindSpeedDeviation can be sure of event
-		// firing
-		this.windTurbulence = intensity;
-		fireChangeEvent();
+		setWindModelType(WindModelType.AVERAGE);
+		averageWindModel.setTurbulenceIntensity(intensity);
 	}
 
-	public void setWindDirection(double direction) {
-		direction = MathUtil.reduce2Pi(direction);
-		if (launchIntoWind) {
-			this.setLaunchRodDirection(direction);
-		}
-		if (MathUtil.equals(this.windDirection, direction))
-			return;
-		this.windDirection = direction;
-		fireChangeEvent();
-
-	}
-
+	@Deprecated
 	public double getWindDirection() {
-		return this.windDirection;
+		setWindModelType(WindModelType.AVERAGE);
+		return averageWindModel.getDirection();
+	}
 
+	@Deprecated
+	public void setWindDirection(double direction) {
+		setWindModelType(WindModelType.AVERAGE);
+		averageWindModel.setDirection(direction);
 	}
 
 	public double getLaunchAltitude() {
@@ -193,7 +232,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	public void setLaunchAltitude(double altitude) {
 		if (MathUtil.equals(this.launchAltitude, altitude))
 			return;
-		this.launchAltitude = altitude;
+		this.launchAltitude = MathUtil.min(altitude, ExtendedISAModel.getMaximumAllowedAltitude());
 
 		// Update the launch temperature and pressure if using ISA
 		if (useISA) {
@@ -306,6 +345,17 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		fireChangeEvent();
 	}
 
+	public double getMaxSimulationTime() {
+		return maxSimulationTime;
+	}
+
+	public void setMaxSimulationTime(double maxSimulationTime) {
+		if (MathUtil.equals(this.maxSimulationTime, maxSimulationTime))
+			return;
+		this.maxSimulationTime = maxSimulationTime;
+		fireChangeEvent();
+	}
+
 	public double getMaximumStepAngle() {
 		return maximumAngle;
 	}
@@ -349,7 +399,16 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	public SimulationOptions clone() {
 		try {
 			SimulationOptions copy = (SimulationOptions) super.clone();
-			copy.listeners = new ArrayList<EventListener>();
+
+			// Deep clone the wind models
+			copy.averageWindModel = this.averageWindModel.clone();
+			copy.multiLevelPinkNoiseWindModel = this.multiLevelPinkNoiseWindModel.clone();
+
+			copy.windModelType = this.windModelType;
+
+			// Create a new list for listeners
+			copy.listeners = new ArrayList<>();
+
 			return copy;
 		} catch (CloneNotSupportedException e) {
 			throw new BugException(e);
@@ -361,6 +420,20 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		// only do it if one of the "important" (user specified) parameters has really
 		// changed.
 		boolean isChanged = false;
+
+		if (this.windModelType != src.windModelType) {
+			isChanged = true;
+			this.windModelType = src.windModelType;
+		}
+		if (!this.averageWindModel.equals(src.averageWindModel)) {
+			isChanged = true;
+			this.averageWindModel.loadFrom(src.averageWindModel);
+		}
+		if (!this.multiLevelPinkNoiseWindModel.equals(src.multiLevelPinkNoiseWindModel)) {
+			isChanged = true;
+			this.multiLevelPinkNoiseWindModel.loadFrom(src.multiLevelPinkNoiseWindModel);
+		}
+
 		if (this.launchAltitude != src.launchAltitude) {
 			isChanged = true;
 			this.launchAltitude = src.launchAltitude;
@@ -405,21 +478,14 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.maximumAngle = src.maximumAngle;
 		}
-		if (this.windAverage != src.windAverage) {
-			isChanged = true;
-			this.windAverage = src.windAverage;
-		}
-		if (this.windDirection != src.windDirection) {
-			isChanged = true;
-			this.windDirection = src.windDirection;
-		}
-		if (this.windTurbulence != src.windTurbulence) {
-			isChanged = true;
-			this.windTurbulence = src.windTurbulence;
-		}
+
 		if (this.timeStep != src.timeStep) {
 			isChanged = true;
 			this.timeStep = src.timeStep;
+		}
+		if (this.maxSimulationTime != src.maxSimulationTime) {
+			isChanged = true;
+			this.maxSimulationTime = src.maxSimulationTime;
 		}
 		if (this.geodeticComputation != src.geodeticComputation) {
 			isChanged = true;
@@ -454,9 +520,10 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.launchTemperature, o.launchTemperature) &&
 				MathUtil.equals(this.maximumAngle, o.maximumAngle) &&
 				MathUtil.equals(this.timeStep, o.timeStep) &&
-				MathUtil.equals(this.windAverage, o.windAverage) &&
-				MathUtil.equals(this.windTurbulence, o.windTurbulence) &&
-				MathUtil.equals(this.windDirection, o.windDirection));
+				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime)) &&
+				this.windModelType == o.windModelType &&
+				this.averageWindModel.equals(o.averageWindModel) &&
+				this.multiLevelPinkNoiseWindModel.equals(o.multiLevelPinkNoiseWindModel);
 	}
 
 	/**
@@ -505,23 +572,17 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		conditions.setGeodeticComputation(getGeodeticComputation());
 		conditions.setRandomSeed(randomSeed);
 
-		PinkNoiseWindModel windModel = new PinkNoiseWindModel(randomSeed);
-		windModel.setAverage(getWindSpeedAverage());
-		windModel.setStandardDeviation(getWindSpeedDeviation());
-		windModel.setDirection(windDirection);
-
+		WindModel windModel = getWindModel().clone();
 		conditions.setWindModel(windModel);
-
 		conditions.setAtmosphericModel(getAtmosphericModel());
-
 		GravityModel gravityModel = new WGSGravityModel();
-
 		conditions.setGravityModel(gravityModel);
 
 		conditions.setAerodynamicCalculator(new BarrowmanCalculator());
 		conditions.setMassCalculator(new MassCalculator());
 
 		conditions.setTimeStep(getTimeStep());
+		conditions.setMaxSimulationTime(getMaxSimulationTime());
 		conditions.setMaximumAngleStep(getMaximumStepAngle());
 
 		return conditions;
@@ -533,10 +594,10 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    launchRodLength:  %f\n", launchRodLength))
 				.concat(String.format("    launchIntoWind: %b\n", launchIntoWind))
 				.concat(String.format("    launchRodAngle:  %f\n", launchRodAngle))
-				.concat(String.format("    windDirection:  %f\n", windDirection))
 				.concat(String.format("    launchRodDirection:  %f\n", launchRodDirection))
-				.concat(String.format("    windAverage:  %f\n", windAverage))
-				.concat(String.format("    windTurbulence:  %f\n", windTurbulence))
+				.concat(String.format("    windModelType: %s\n", windModelType))
+				.concat(String.format("    pinkNoiseWindModel: %s\n", averageWindModel))
+				.concat(String.format("    multiLevelPinkNoiseWindModel: %s\n", multiLevelPinkNoiseWindModel))
 				.concat(String.format("    launchAltitude:  %f\n", launchAltitude))
 				.concat(String.format("    launchLatitude:  %f\n", launchLatitude))
 				.concat(String.format("    launchLongitude:  %f\n", launchLongitude))
@@ -545,6 +606,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    launchTemperature:  %f\n", launchTemperature))
 				.concat(String.format("    launchPressure:  %f\n", launchPressure))
 				.concat(String.format("    timeStep:  %f\n", timeStep))
+				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))
 				.concat("]\n");
 	}

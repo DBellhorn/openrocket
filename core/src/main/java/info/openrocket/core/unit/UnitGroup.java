@@ -20,7 +20,6 @@ import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.util.Chars;
 import info.openrocket.core.util.StringUtils;
 
 /**
@@ -69,8 +68,9 @@ public class UnitGroup {
 	/** Time in the order of seconds (motor delay etc). */
 	public static final UnitGroup UNITS_SHORT_TIME;
 
-	/** Time in the order of the flight time of a rocket. */
-	public static final UnitGroup UNITS_FLIGHT_TIME;
+	/** Time in the order of minutes (flight time etc). */
+	public static final UnitGroup UNITS_LONG_TIME;
+
 	public static final UnitGroup UNITS_ROLL;
 	public static final UnitGroup UNITS_TEMPERATURE;
 	public static final UnitGroup UNITS_PRESSURE;
@@ -107,27 +107,27 @@ public class UnitGroup {
 
 		UNITS_ENERGY = new UnitGroup();
 		UNITS_ENERGY.addUnit(new GeneralUnit(1, "J"));
-		UNITS_ENERGY.addUnit(new GeneralUnit(1e-7, "erg"));
+		UNITS_ENERGY.addUnit(new GeneralUnit(1.0e-7, "erg"));
 		UNITS_ENERGY.addUnit(new GeneralUnit(1.055, "BTU"));
 		UNITS_ENERGY.addUnit(new GeneralUnit(4.184, "cal"));
 		UNITS_ENERGY.addUnit(new GeneralUnit(1.3558179483314, "ft" + DOT + "lbf"));
 
 		UNITS_POWER = new UnitGroup();
-		UNITS_POWER.addUnit(new GeneralUnit(1e-3, "mW"));
+		UNITS_POWER.addUnit(new GeneralUnit(1.0e-3, "mW"));
 		UNITS_POWER.addUnit(new GeneralUnit(1, "W"));
-		UNITS_POWER.addUnit(new GeneralUnit(1e3, "kW"));
-		UNITS_POWER.addUnit(new GeneralUnit(1e-7, "ergs"));
+		UNITS_POWER.addUnit(new GeneralUnit(1.0e3, "kW"));
+		UNITS_POWER.addUnit(new GeneralUnit(1.0e-7, "ergs"));
 		UNITS_POWER.addUnit(new GeneralUnit(745.699872, "hp"));
 
 		UNITS_MOMENTUM = new UnitGroup();
 		UNITS_MOMENTUM.addUnit(new GeneralUnit(1, "kg" + DOT + "m/s"));
 
 		UNITS_VOLTAGE = new UnitGroup();
-		UNITS_VOLTAGE.addUnit(new GeneralUnit(1e-3, "mV"));
+		UNITS_VOLTAGE.addUnit(new GeneralUnit(1.0e-3, "mV"));
 		UNITS_VOLTAGE.addUnit(new GeneralUnit(1, "V"));
 
 		UNITS_CURRENT = new UnitGroup();
-		UNITS_CURRENT.addUnit(new GeneralUnit(1e-3, "mA"));
+		UNITS_CURRENT.addUnit(new GeneralUnit(1.0e-3, "mA"));
 		UNITS_CURRENT.addUnit(new GeneralUnit(1, "A"));
 
 		UNITS_LENGTH = new UnitGroup();
@@ -135,7 +135,7 @@ public class UnitGroup {
 		UNITS_LENGTH.addUnit(new GeneralUnit(0.01, "cm"));
 		UNITS_LENGTH.addUnit(new GeneralUnit(1, "m"));
 		UNITS_LENGTH.addUnit(new InchUnit(0.0254, "in", 1));
-		UNITS_LENGTH.addUnit(new FractionalUnit(0.0254, "in/64", "in", 64, 1d / 16d, 0.5d / 64d));
+		UNITS_LENGTH.addUnit(new FractionalUnit(0.0254, "in/64", "in", 64, 1.0d / 16.0d, 0.5d / 64.0d));
 		UNITS_LENGTH.addUnit(new GeneralUnit(0.3048, "ft"));
 
 		UNITS_MOTOR_DIMENSIONS = new UnitGroup();
@@ -158,7 +158,7 @@ public class UnitGroup {
 		UNITS_ALL_LENGTHS.addUnit(new GeneralUnit(1, "m"));
 		UNITS_ALL_LENGTHS.addUnit(new GeneralUnit(1000, "km"));
 		UNITS_ALL_LENGTHS.addUnit(new GeneralUnit(0.0254, "in"));
-		UNITS_ALL_LENGTHS.addUnit(new FractionalUnit(0.0254, "in/64", "in", 64, 1d / 16d, 0.5d / 64d));
+		UNITS_ALL_LENGTHS.addUnit(new FractionalUnit(0.0254, "in/64", "in", 64, 1.0d / 16.0d, 0.5d / 64.0d));
 		UNITS_ALL_LENGTHS.addUnit(new GeneralUnit(0.3048, "ft"));
 		UNITS_ALL_LENGTHS.addUnit(new GeneralUnit(0.9144, "yd"));
 		UNITS_ALL_LENGTHS.addUnit(new GeneralUnit(1609.344, "mi"));
@@ -197,12 +197,12 @@ public class UnitGroup {
 		UNITS_WINDSPEED.addUnit(new GeneralUnit(0.51444445, "kt"));
 
 		UNITS_LATITUDE = new UnitGroup();
-		UNITS_LATITUDE.addUnit(new GeneralUnit(1, DEGREE + " " + trans.get("CompassRose.lbl.north")));
-		UNITS_LATITUDE.addUnit(new GeneralUnit(-1, DEGREE + " " + trans.get("CompassRose.lbl.south")));
+		UNITS_LATITUDE.addUnit(new FixedPrecisionUnit(DEGREE + " " + trans.get("CompassRose.lbl.north"), 10E-6, 1, false));
+		UNITS_LATITUDE.addUnit(new FixedPrecisionUnit(DEGREE + " " + trans.get("CompassRose.lbl.south"), 10E-6, -1, false));
 
 		UNITS_LONGITUDE = new UnitGroup();
-		UNITS_LONGITUDE.addUnit(new GeneralUnit(1, DEGREE + " " + trans.get("CompassRose.lbl.east")));
-		UNITS_LONGITUDE.addUnit(new GeneralUnit(-1, DEGREE + " " + trans.get("CompassRose.lbl.west")));
+		UNITS_LONGITUDE.addUnit(new FixedPrecisionUnit(DEGREE + " " + trans.get("CompassRose.lbl.east"), 10E-6, 1, false));
+		UNITS_LONGITUDE.addUnit(new FixedPrecisionUnit(DEGREE + " " + trans.get("CompassRose.lbl.west"), 10E-6, -1, false));
 
 		UNITS_ACCELERATION = new UnitGroup();
 		UNITS_ACCELERATION.addUnit(new GeneralUnit(1, "m/s" + SQUARED));
@@ -270,9 +270,9 @@ public class UnitGroup {
 		UNITS_SHORT_TIME = new UnitGroup();
 		UNITS_SHORT_TIME.addUnit(new GeneralUnit(1, "s"));
 
-		UNITS_FLIGHT_TIME = new UnitGroup();
-		UNITS_FLIGHT_TIME.addUnit(new GeneralUnit(1, "s"));
-		UNITS_FLIGHT_TIME.addUnit(new GeneralUnit(60, "min"));
+		UNITS_LONG_TIME = new UnitGroup();
+		UNITS_LONG_TIME.addUnit(new GeneralUnit(1, "s"));
+		UNITS_LONG_TIME.addUnit(new GeneralUnit(60, "min"));
 
 		UNITS_ROLL = new UnitGroup();
 		UNITS_ROLL.addUnit(new GeneralUnit(1, "rad/s"));
@@ -319,13 +319,13 @@ public class UnitGroup {
 
 		// This is not used by OpenRocket, and not extensively tested:
 		UNITS_FREQUENCY = new UnitGroup();
-		UNITS_FREQUENCY.addUnit(new FrequencyUnit(.001, "mHz"));
+		UNITS_FREQUENCY.addUnit(new FrequencyUnit(0.001, "mHz"));
 		UNITS_FREQUENCY.addUnit(new FrequencyUnit(1, "Hz"));
 		UNITS_FREQUENCY.addUnit(new FrequencyUnit(1000, "kHz"));
 
 		resetDefaultUnits();
 
-		HashMap<String, UnitGroup> map = new HashMap<String, UnitGroup>();
+		HashMap<String, UnitGroup> map = new HashMap<>();
 		map.put("NONE", UNITS_NONE);
 		map.put("LENGTH", UNITS_LENGTH);
 		map.put("ALL_LENGTHS", UNITS_ALL_LENGTHS);
@@ -346,7 +346,7 @@ public class UnitGroup {
 		map.put("IMPULSE", UNITS_IMPULSE);
 		map.put("TIME_STEP", UNITS_TIME_STEP);
 		map.put("SHORT_TIME", UNITS_SHORT_TIME);
-		map.put("FLIGHT_TIME", UNITS_FLIGHT_TIME);
+		map.put("FLIGHT_TIME", UNITS_LONG_TIME);
 		map.put("ROLL", UNITS_ROLL);
 		map.put("TEMPERATURE", UNITS_TEMPERATURE);
 		map.put("PRESSURE", UNITS_PRESSURE);
@@ -367,7 +367,7 @@ public class UnitGroup {
 
 		UNITS = Collections.unmodifiableMap(map);
 
-		HashMap<String, UnitGroup> simap = new HashMap<String, UnitGroup>();
+		HashMap<String, UnitGroup> simap = new HashMap<>();
 		simap.put("m", UNITS_ALL_LENGTHS);
 		simap.put("m^2", UNITS_AREA);
 		simap.put("m/s", UNITS_VELOCITY);
@@ -377,7 +377,7 @@ public class UnitGroup {
 		simap.put("kg/m^3", UNITS_DENSITY_BULK);
 		simap.put("N", UNITS_FORCE);
 		simap.put("Ns", UNITS_IMPULSE);
-		simap.put("s", UNITS_FLIGHT_TIME);
+		simap.put("s", UNITS_LONG_TIME);
 		simap.put("Pa", UNITS_PRESSURE);
 		simap.put("V", UNITS_VOLTAGE);
 		simap.put("A", UNITS_CURRENT);
@@ -408,7 +408,7 @@ public class UnitGroup {
 		UNITS_FORCE.setDefaultUnit("N");
 		UNITS_IMPULSE.setDefaultUnit("Ns");
 		UNITS_TIME_STEP.setDefaultUnit("s");
-		UNITS_FLIGHT_TIME.setDefaultUnit("s");
+		UNITS_LONG_TIME.setDefaultUnit("s");
 		UNITS_ROLL.setDefaultUnit("r/s");
 		UNITS_TEMPERATURE.setDefaultUnit(DEGREE + "C");
 		UNITS_WINDSPEED.setDefaultUnit("m/s");
@@ -438,7 +438,7 @@ public class UnitGroup {
 		UNITS_FORCE.setDefaultUnit("N");
 		UNITS_IMPULSE.setDefaultUnit("Ns");
 		UNITS_TIME_STEP.setDefaultUnit("s");
-		UNITS_FLIGHT_TIME.setDefaultUnit("s");
+		UNITS_LONG_TIME.setDefaultUnit("s");
 		UNITS_ROLL.setDefaultUnit("r/s");
 		UNITS_TEMPERATURE.setDefaultUnit(DEGREE + "F");
 		UNITS_WINDSPEED.setDefaultUnit("mph");
@@ -480,7 +480,7 @@ public class UnitGroup {
 		UNITS_IMPULSE.setDefaultUnit(0);
 		UNITS_TIME_STEP.setDefaultUnit(1);
 		UNITS_SHORT_TIME.setDefaultUnit(0);
-		UNITS_FLIGHT_TIME.setDefaultUnit(0);
+		UNITS_LONG_TIME.setDefaultUnit(0);
 		UNITS_ROLL.setDefaultUnit(1);
 		UNITS_TEMPERATURE.setDefaultUnit(1);
 		UNITS_PRESSURE.setDefaultUnit(0);
@@ -567,7 +567,7 @@ public class UnitGroup {
 	//////////////////////////////////////////////////////
 	
 	
-	protected ArrayList<Unit> units = new ArrayList<Unit>();
+	protected ArrayList<Unit> units = new ArrayList<>();
 	protected int defaultUnit = 0;
 
 	public int getUnitCount() {
@@ -635,9 +635,9 @@ public class UnitGroup {
 	}
 
 	public Unit getUnit(String name) throws IllegalArgumentException {
-		for (int i = 0; i < units.size(); i++) {
-			if (units.get(i).getUnit().equals(name)) {
-				return units.get(i);
+		for (Unit unit : units) {
+			if (unit.getUnit().equals(name)) {
+				return unit;
 			}
 		}
 		throw new IllegalArgumentException("name=" + name);
@@ -759,7 +759,7 @@ public class UnitGroup {
 		double value = StringUtils.convertToDouble(matcher.group(1));
 		String unit = matcher.group(2).trim();
 
-		if (unit.equals("")) {
+		if (unit.isEmpty()) {
 			value = this.getDefaultUnit().fromUnit(value);
 		} else {
 			int i;

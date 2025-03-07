@@ -95,6 +95,9 @@ public class ComponentRenderer {
 		if (glu == null)
 			throw new IllegalStateException(this + " Not Initialized");
 
+		if (!c.isVisible()) {
+			return;
+		}
 		glu.gluQuadricNormals(q, GLU.GLU_SMOOTH);
 
 		if (c instanceof BodyTube) {
@@ -367,8 +370,8 @@ public class ComponentRenderer {
 
 		gl.glMatrixMode(GL.GL_TEXTURE);
 		gl.glPushMatrix();
-		gl.glTranslated(0, .125, 0);
-		gl.glScaled(1, .75, 0);
+		gl.glTranslated(0, 0.125, 0);
+		gl.glScaled(1, 0.75, 0);
 
 		glu.gluCylinder(q, r, r, l, LOD, 1);
 
@@ -381,7 +384,7 @@ public class ComponentRenderer {
 			gl.glBegin(GL.GL_TRIANGLE_STRIP);
 			gl.glNormal3d(0, 0, 1);
 			for (int i = 0; i < LOD + 1; i++) {
-				gl.glTexCoord2d(i * dt, .125);
+				gl.glTexCoord2d(i * dt, 0.125);
 				gl.glVertex3d(r * Math.cos(da * i), r * Math.sin(da * i), 0);
 				gl.glTexCoord2d(i * dt, 0);
 				gl.glVertex3d(0, 0, 0);
@@ -399,20 +402,20 @@ public class ComponentRenderer {
 			gl.glBegin(GL.GL_TRIANGLE_STRIP);
 			gl.glNormal3d(0, 0, -1);
 			for (int i = 0; i < LOD + 1; i++) {
-				gl.glTexCoord2d(i * dt, .875);
+				gl.glTexCoord2d(i * dt, 0.875);
 				gl.glVertex3d(r * Math.cos(da * i), r * Math.sin(da * i), 0);
-				gl.glTexCoord2d(i * dt, .9);
-				gl.glVertex3d(.8 * r * Math.cos(da * i), .8 * r * Math.sin(da * i), 0);
+				gl.glTexCoord2d(i * dt, 0.9);
+				gl.glVertex3d(0.8 * r * Math.cos(da * i), 0.8 * r * Math.sin(da * i), 0);
 			}
 			gl.glEnd();
 			gl.glBegin(GL.GL_TRIANGLE_STRIP);
 
 			for (int i = 0; i < LOD + 1; i++) {
 				gl.glNormal3d(-Math.cos(da * i), -Math.sin(da * i), -1);
-				gl.glTexCoord2d(i * dt, .9);
-				gl.glVertex3d(.8 * r * Math.cos(da * i), .8 * r * Math.sin(da * i), 0);
+				gl.glTexCoord2d(i * dt, 0.9);
+				gl.glVertex3d(0.8 * r * Math.cos(da * i), 0.8 * r * Math.sin(da * i), 0);
 				gl.glTexCoord2d(i * dt, 1);
-				gl.glVertex3d(0, 0, l * .05);
+				gl.glVertex3d(0, 0, l * 0.05);
 			}
 			gl.glEnd();
 		}

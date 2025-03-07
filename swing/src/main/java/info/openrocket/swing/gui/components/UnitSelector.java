@@ -49,7 +49,7 @@ public class UnitSelector extends StyledLabel implements StateChangeListener, Mo
 	private static Border withinBorder;
 
 
-	private final List<ItemListener> itemListeners = new ArrayList<ItemListener>();
+	private final List<ItemListener> itemListeners = new ArrayList<>();
 
 
 	static {
@@ -116,7 +116,7 @@ public class UnitSelector extends StyledLabel implements StateChangeListener, Mo
 		UITheme.Theme.addUIThemeChangeListener(UnitSelector::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		normalBorder = GUIUtil.getUITheme().getUnitSelectorBorder();
 		withinBorder = GUIUtil.getUITheme().getUnitSelectorFocusBorder();
 	}

@@ -47,7 +47,7 @@ public class StringUtils {
 		if (s == null) {
 			return true;
 		}
-		return "".equals(s.trim());
+		return s.trim().isEmpty();
 	}
 
 	/**
@@ -104,4 +104,7 @@ public class StringUtils {
 		return sb.toString();
 	}
 
+	public static String removeHTMLTags(String input) {
+		return input.replaceAll("<[^>]*>", "");
+	}
 }

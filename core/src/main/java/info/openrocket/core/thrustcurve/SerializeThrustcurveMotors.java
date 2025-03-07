@@ -5,7 +5,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectOutputStream;
-import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,28 +21,30 @@ import info.openrocket.core.util.Pair;
 public class SerializeThrustcurveMotors {
 
 	private static final String[] manufacturers = {
-			"AeroTech",
-			"Alpha",
-			"AMW",
-			"Apogee",
-			"Cesaroni",
-			"Contrail",
-			"Ellis",
-			"Estes",
-			"GR",
-			"Hypertek",
-			"KBA",
-			"Kosdon",
-			"Loki",
-			"PP",
-			"PML",
-			"Quest",
-			"RATT",
-			"Roadrunner",
-			"RV",
-			"SkyR",
-			"SCR",
-			"WCH"
+		"AeroTech",
+		"Alpha",
+		"AMW",
+		"Apogee",
+		"Cesaroni",
+		"Contrail",
+		"Ellis",
+		"Estes",
+		"Gorilla",
+		"Hypertek",
+		"KBA",
+		"Kosdon",
+		"Loki",
+		"TSP",
+		"PP",
+		"PML",
+		"Quest",
+		"RATT",
+		"Klima",
+		"Roadrunner",
+		"RV",
+		"SkyR",
+		"SCR",
+		"WCH"
 	};
 
 	public static void main(String[] args) throws Exception {
@@ -57,7 +58,7 @@ public class SerializeThrustcurveMotors {
 		String inputDir = args[0];
 		String outputFile = args[1];
 
-		final List<Motor> allMotors = new ArrayList<Motor>();
+		final List<Motor> allMotors = new ArrayList<>();
 
 		loadFromLocalMotorFiles(allMotors, inputDir);
 
@@ -97,21 +98,12 @@ public class SerializeThrustcurveMotors {
 					continue;
 				}
 
-				final Motor.Type type;
-				switch (mi.getType()) {
-					case "SU":
-						type = Motor.Type.SINGLE;
-						break;
-					case "reload":
-						type = Motor.Type.RELOAD;
-						break;
-					case "hybrid":
-						type = Motor.Type.HYBRID;
-						break;
-					default:
-						type = Motor.Type.UNKNOWN;
-						break;
-				}
+				final Motor.Type type = switch (mi.getType()) {
+					case "SU" -> Motor.Type.SINGLE;
+					case "reload" -> Motor.Type.RELOAD;
+					case "hybrid" -> Motor.Type.HYBRID;
+					default -> Motor.Type.UNKNOWN;
+				};
 
 				System.out.println(message);
 

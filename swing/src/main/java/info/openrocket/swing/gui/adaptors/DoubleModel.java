@@ -30,9 +30,7 @@ import info.openrocket.core.util.ChangeSource;
 import info.openrocket.core.util.ExpressionParser;
 import info.openrocket.core.util.InvalidExpressionException;
 import info.openrocket.core.util.Invalidatable;
-import info.openrocket.core.util.Invalidator;
 import info.openrocket.core.util.MathUtil;
-import info.openrocket.core.util.MemoryManagement;
 import info.openrocket.core.util.Reflection;
 import info.openrocket.core.util.StateChangeListener;
 
@@ -544,7 +542,7 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 		
 		// Implement a wrapper to the ChangeListeners
 		ArrayList<PropertyChangeListener> propertyChangeListeners =
-				new ArrayList<PropertyChangeListener>();
+				new ArrayList<>();
 		
 		@Override
 		public void addPropertyChangeListener(PropertyChangeListener listener) {
@@ -569,8 +567,8 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 					oldValue, newValue);
 			oldValue = newValue;
 			Object[] l = propertyChangeListeners.toArray();
-			for (int i = 0; i < l.length; i++) {
-				((PropertyChangeListener) l[i]).propertyChange(event);
+			for (Object o : l) {
+				((PropertyChangeListener) o).propertyChange(event);
 			}
 		}
 		
@@ -620,7 +618,9 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 	private Unit currentUnit;
 	
 	private final double minValue;
-	private double maxValue;
+	private final double maxValue;
+	private DoubleModel minModel;
+	private DoubleModel maxModel;
 	
 	private String toString = null;
 	
@@ -699,7 +699,7 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 	 * @param max Maximum value allowed (in SI units)
 	 */
 	public DoubleModel(Object source, String valueName, double multiplier, UnitGroup unit,
-			double min, double max) {
+			Object min, Object max) {
 		this.modelInvalidator = new ModelInvalidator(source, this);
 		this.source = source;
 		this.valueName = valueName;
@@ -707,11 +707,28 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 		
 		this.units = unit;
 		currentUnit = units.getDefaultUnit();
+
+		if (min instanceof DoubleModel) {
+			this.minModel = (DoubleModel) min;
+			this.minValue = this.minModel.getValue();
+			this.minModel.addChangeListener(this);
+		} else if (min instanceof Double) {
+			this.minValue = (Double) min;
+		} else {
+			this.minValue = Double.NEGATIVE_INFINITY;
+		}
+
+		if (max instanceof DoubleModel) {
+			this.maxModel = (DoubleModel) max;
+			this.maxValue = this.maxModel.getValue();
+			this.maxModel.addChangeListener(this);
+		} else if (max instanceof Double) {
+			this.maxValue = (Double) max;
+		} else {
+			this.maxValue = Double.POSITIVE_INFINITY;
+		}
 		
-		this.minValue = min;
-		this.maxValue = max;
-		
-		if(RocketComponent.class.isAssignableFrom(source.getClass())) {
+		if (RocketComponent.class.isAssignableFrom(source.getClass())) {
 		    ((RocketComponent)source).addChangeListener(this);
 		}
 		
@@ -753,6 +770,11 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 			double min) {
 		this(source, valueName, multiplier, unit, min, Double.POSITIVE_INFINITY);
 	}
+
+	public DoubleModel(Object source, String valueName, double multiplier, UnitGroup unit,
+					   DoubleModel min) {
+		this(source, valueName, multiplier, unit, min, Double.POSITIVE_INFINITY);
+	}
 	
 	public DoubleModel(Object source, String valueName, double multiplier, UnitGroup unit) {
 		this(source, valueName, multiplier, unit, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
@@ -765,6 +787,22 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 	
 	public DoubleModel(Object source, String valueName, UnitGroup unit, double min) {
 		this(source, valueName, 1.0, unit, min, Double.POSITIVE_INFINITY);
+	}
+
+	public DoubleModel(Object source, String valueName, UnitGroup unit, DoubleModel min) {
+		this(source, valueName, 1.0, unit, min, Double.POSITIVE_INFINITY);
+	}
+
+	public DoubleModel(Object source, String valueName, UnitGroup unit, double min, DoubleModel max) {
+		this(source, valueName, 1.0, unit, min, max);
+	}
+
+	public DoubleModel(Object source, String valueName, UnitGroup unit, DoubleModel min, double max) {
+		this(source, valueName, 1.0, unit, min, max);
+	}
+
+	public DoubleModel(Object source, String valueName, UnitGroup unit, DoubleModel min, DoubleModel max) {
+		this(source, valueName, 1.0, unit, min, max);
 	}
 	
 	public DoubleModel(Object source, String valueName, UnitGroup unit) {
@@ -779,8 +817,24 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 	public DoubleModel(Object source, String valueName, double min) {
 		this(source, valueName, 1.0, UnitGroup.UNITS_NONE, min, Double.POSITIVE_INFINITY);
 	}
+
+	public DoubleModel(Object source, String valueName, DoubleModel min) {
+		this(source, valueName, 1.0, UnitGroup.UNITS_NONE, min, Double.POSITIVE_INFINITY);
+	}
 	
 	public DoubleModel(Object source, String valueName, double min, double max) {
+		this(source, valueName, 1.0, UnitGroup.UNITS_NONE, min, max);
+	}
+
+	public DoubleModel(Object source, String valueName, DoubleModel min, double max) {
+		this(source, valueName, 1.0, UnitGroup.UNITS_NONE, min, max);
+	}
+
+	public DoubleModel(Object source, String valueName, double min, DoubleModel max) {
+		this(source, valueName, 1.0, UnitGroup.UNITS_NONE, min, max);
+	}
+
+	public DoubleModel(Object source, String valueName, DoubleModel min, DoubleModel max) {
 		this(source, valueName, 1.0, UnitGroup.UNITS_NONE, min, max);
 	}
 	
@@ -794,9 +848,7 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 		
 		try {
 			return (Double) getMethod.invoke(source) * multiplier;
-		} catch (IllegalArgumentException e) {
-			throw new BugException("Unable to invoke getMethod of " + this, e);
-		} catch (IllegalAccessException e) {
+		} catch (IllegalArgumentException | IllegalAccessException e) {
 			throw new BugException("Unable to invoke getMethod of " + this, e);
 		} catch (InvocationTargetException e) {
 			throw Reflection.handleWrappedException(e);
@@ -810,7 +862,9 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 	public void setValue(double v) {
 		modelInvalidator.checkState(true);
 
-		double clampedValue = MathUtil.clamp(v, minValue, maxValue);
+		double minVal = (minModel != null) ? minModel.getValue() : minValue;
+		double maxVal = (maxModel != null) ? maxModel.getValue() : maxValue;
+		double clampedValue = MathUtil.clamp(v, minVal, maxVal);
 		if (clampedValue != v) {
 			log.debug("Clamped value " + v + " to " + clampedValue + " for " + this);
 			v = clampedValue;
@@ -831,15 +885,21 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 			setMethod.invoke(source, v / multiplier);
 			// Make sure to notify all the listeners that have registered
 			fireStateChanged();
-		} catch (IllegalArgumentException e) {
-			throw new BugException("Unable to invoke setMethod of " + this, e);
-		} catch (IllegalAccessException e) {
+		} catch (IllegalArgumentException | IllegalAccessException e) {
 			throw new BugException("Unable to invoke setMethod of " + this, e);
 		} catch (InvocationTargetException e) {
 			throw Reflection.handleWrappedException(e);
 		}
 	}
-	
+
+	public void setMinModel(DoubleModel minModel) {
+		this.minModel = minModel;
+	}
+
+	public void setMaxModel(DoubleModel maxModel) {
+		this.maxModel = maxModel;
+	}
+
 	/**
 	 * Returns whether setting the value automatically is available.
 	 */
@@ -857,9 +917,7 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 		
 		try {
 			return (Boolean) getAutoMethod.invoke(source);
-		} catch (IllegalArgumentException e) {
-			throw new BugException("Method call failed", e);
-		} catch (IllegalAccessException e) {
+		} catch (IllegalArgumentException | IllegalAccessException e) {
 			throw new BugException("Method call failed", e);
 		} catch (InvocationTargetException e) {
 			throw Reflection.handleWrappedException(e);
@@ -883,9 +941,7 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 		lastAutomatic = auto;
 		try {
 			setAutoMethod.invoke(source, auto);
-		} catch (IllegalArgumentException e) {
-			throw new BugException(e);
-		} catch (IllegalAccessException e) {
+		} catch (IllegalArgumentException | IllegalAccessException e) {
 			throw new BugException(e);
 		} catch (InvocationTargetException e) {
 			throw Reflection.handleWrappedException(e);
@@ -993,6 +1049,8 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 	@Override
 	public void invalidateMe() {
 		modelInvalidator.invalidateMe();
+		if (minModel != null) minModel.removeChangeListener(this);
+		if (maxModel != null) maxModel.removeChangeListener(this);
 	}
 	
 
@@ -1032,6 +1090,13 @@ public class DoubleModel implements StateChangeListener, ChangeSource, Invalidat
 	@Override
 	public void stateChanged(EventObject e) {
 		modelInvalidator.checkState(true);
+
+		if (e != null && (e.getSource() == minModel || e.getSource() == maxModel)) {
+			// Min or max value has changed, we need to ensure our current value is still within bounds
+			double currentValue = getValue();
+			setValue(currentValue);  // This will clamp the value if necessary
+			return;
+		}
 		
 		double v = getValue();
 		boolean b = isAutomatic();

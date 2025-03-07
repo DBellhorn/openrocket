@@ -3,12 +3,14 @@ package info.openrocket.core.simulation;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import info.openrocket.core.aerodynamics.FlightConditions;
 import info.openrocket.core.logging.SimulationAbort;
+import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.motor.MotorConfiguration;
 import info.openrocket.core.motor.MotorConfigurationId;
@@ -20,6 +22,8 @@ import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.listeners.SimulationListenerHelper;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.MathUtil;
+import info.openrocket.core.util.ModID;
 import info.openrocket.core.util.Monitorable;
 import info.openrocket.core.util.MonitorableSet;
 import info.openrocket.core.util.Quaternion;
@@ -29,12 +33,24 @@ import org.slf4j.LoggerFactory;
 
 /**
  * A holder class for the dynamic status during the rocket's flight.
- * 
+ *
  * @author Sampo Niskanen <sampo.niskanen@iki.fi>
+ *
+ * The initial SimulationStatus is saved to the FlightDataBranch when it is
+ * created.
+ * The updated SimulationStatus is saved to the FlightDataBranch at the very
+ * end of each step.
  */
 
-public class SimulationStatus implements Monitorable {
+public class SimulationStatus implements Cloneable, Monitorable {
 
+	// time after leaving launch rod before recording flight event warnings
+	private final double WARNINGS_WAIT = 0.25;
+
+	// when our z velocity decreases to this proportion of max z velocity, stop recording
+	// most flight event warnings
+	private final double WARNINGS_VEL = 0.2;
+	
 	private static final Logger log = LoggerFactory.getLogger(BasicEventSimulationEngine.class);
 
 	private SimulationConditions simulationConditions;
@@ -46,15 +62,17 @@ public class SimulationStatus implements Monitorable {
 	private Coordinate position;
 	private WorldCoordinate worldPosition;
 	private Coordinate velocity;
-	private Coordinate acceleration;
 
 	private Quaternion orientation;
 	private Coordinate rotationVelocity;
 
+	private double maxZVelocity = Double.NEGATIVE_INFINITY;
+	private double startWarningsTime = RK4SimulationStepper.RECOMMENDED_MAX_TIME;
+	
 	private double effectiveLaunchRodLength;
 
 	// Set of all motors
-	private final List<MotorClusterState> motorStateList = new ArrayList<MotorClusterState>();
+	private final List<MotorClusterState> motorStateList = new ArrayList<>();
 
 	/** Nanosecond time when the simulation was started. */
 	private long simulationStartWallTime = Long.MIN_VALUE;
@@ -78,7 +96,7 @@ public class SimulationStatus implements Monitorable {
 	private boolean landed = false;
 
 	/** Contains a list of deployed recovery devices. */
-	private final MonitorableSet<RecoveryDevice> deployedRecoveryDevices = new MonitorableSet<RecoveryDevice>();
+	private final MonitorableSet<RecoveryDevice> deployedRecoveryDevices = new MonitorableSet<>();
 
 	/** The flight event queue */
 	private final EventQueue eventQueue = new EventQueue();
@@ -86,13 +104,13 @@ public class SimulationStatus implements Monitorable {
 	private WarningSet warnings;
 
 	/** Available for special purposes by the listeners. */
-	private final Map<String, Object> extraData = new HashMap<String, Object>();
+	private final Map<String, Object> extraData = new HashMap<>();
 
 	double maxAlt = Double.NEGATIVE_INFINITY;
 	double maxAltTime = 0;
 
-	private int modID = 0;
-	private int modIDadd = 0;
+	private ModID modID = ModID.INVALID;
+	private ModID modIDadd = ModID.INVALID;
 
 	public SimulationStatus(FlightConfiguration configuration, SimulationConditions simulationConditions) {
 
@@ -103,7 +121,6 @@ public class SimulationStatus implements Monitorable {
 		this.position = this.simulationConditions.getLaunchPosition();
 		this.velocity = this.simulationConditions.getLaunchVelocity();
 		this.worldPosition = this.simulationConditions.getLaunchSite();
-		this.acceleration = Coordinate.ZERO;
 
 		// Initialize to roll angle with least stability w.r.t. the wind
 		Quaternion o;
@@ -173,7 +190,6 @@ public class SimulationStatus implements Monitorable {
 		this.flightDataBranch = orig.flightDataBranch;
 		this.time = orig.time;
 		this.position = orig.position;
-		this.acceleration = orig.acceleration;
 		this.worldPosition = orig.worldPosition;
 		this.velocity = orig.velocity;
 		this.orientation = orig.orientation;
@@ -186,7 +202,9 @@ public class SimulationStatus implements Monitorable {
 		this.apogeeReached = orig.apogeeReached;
 		this.tumbling = orig.tumbling;
 		this.landed = orig.landed;
-
+		this.maxZVelocity = orig.maxZVelocity;
+		this.startWarningsTime = orig.startWarningsTime;
+		
 		this.configuration.copyStages(orig.configuration);
 
 		this.deployedRecoveryDevices.clear();
@@ -210,7 +228,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setSimulationTime(double time) {
 		this.time = time;
-		this.modID++;
+		this.modID = new ModID();
 	}
 
 	public double getSimulationTime() {
@@ -219,8 +237,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setConfiguration(FlightConfiguration configuration) {
 		if (this.configuration != null)
-			this.modIDadd += this.configuration.getModID();
-		this.modID++;
+			this.modIDadd = new ModID();
 		this.configuration = configuration;
 	}
 
@@ -229,7 +246,7 @@ public class SimulationStatus implements Monitorable {
 	}
 
 	public Collection<MotorClusterState> getActiveMotors() {
-		List<MotorClusterState> activeList = new ArrayList<MotorClusterState>();
+		List<MotorClusterState> activeList = new ArrayList<>();
 		for (MotorClusterState state : this.motorStateList) {
 			if (this.configuration.isComponentActive(state.getMount())) {
 				activeList.add(state);
@@ -249,8 +266,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setFlightDataBranch(FlightDataBranch flightDataBranch) {
 		if (this.flightDataBranch != null)
-			this.modIDadd += this.flightDataBranch.getModID();
-		this.modID++;
+			this.modIDadd = new ModID();
 		this.flightDataBranch = flightDataBranch;
 	}
 
@@ -258,40 +274,47 @@ public class SimulationStatus implements Monitorable {
 		return flightDataBranch;
 	}
 
+	/**
+	 * Set the rocket position relative to the launch site; at t = 0s, equals (0, 0, 0).
+	 * @param position the rocket position
+	 */
 	public void setRocketPosition(Coordinate position) {
 		this.position = position;
-		this.modID++;
+		modID = new ModID();
 	}
 
+	/**
+	 * Get the rocket position relative to the launch site; at t = 0s, equals (0, 0, 0).
+	 * @return the rocket position
+	 */
 	public Coordinate getRocketPosition() {
 		return position;
 	}
 
+	/**
+	 * Set the rocket position in world coordinates (including the launch site altitude, longitude, and latitude).
+	 * @param wc the rocket position in world coordinates
+	 */
 	public void setRocketWorldPosition(WorldCoordinate wc) {
 		this.worldPosition = wc;
-		this.modID++;
+		modID = new ModID();
 	}
 
+	/**
+	 * Get the rocket position in world coordinates (including the launch site altitude, longitude, and latitude).
+	 * @return the rocket position in world coordinates
+	 */
 	public WorldCoordinate getRocketWorldPosition() {
 		return worldPosition;
 	}
 
 	public void setRocketVelocity(Coordinate velocity) {
 		this.velocity = velocity;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public Coordinate getRocketVelocity() {
 		return velocity;
-	}
-
-	public void setRocketAcceleration(Coordinate acceleration) {
-		this.acceleration = acceleration;
-		this.modID++;
-	}
-
-	public Coordinate getRocketAcceleration() {
-		return acceleration;
 	}
 
 	public boolean moveBurntOutMotor(final MotorConfigurationId motor) {
@@ -307,7 +330,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setRocketOrientationQuaternion(Quaternion orientation) {
 		this.orientation = orientation;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public Coordinate getRocketRotationVelocity() {
@@ -320,7 +343,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setEffectiveLaunchRodLength(double effectiveLaunchRodLength) {
 		this.effectiveLaunchRodLength = effectiveLaunchRodLength;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public double getEffectiveLaunchRodLength() {
@@ -329,7 +352,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setSimulationStartWallTime(long simulationStartWallTime) {
 		this.simulationStartWallTime = simulationStartWallTime;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public long getSimulationStartWallTime() {
@@ -338,7 +361,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setMotorIgnited(boolean motorIgnited) {
 		this.motorIgnited = motorIgnited;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public boolean isMotorIgnited() {
@@ -347,7 +370,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setLiftoff(boolean liftoff) {
 		this.liftoff = liftoff;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public boolean isLiftoff() {
@@ -356,7 +379,10 @@ public class SimulationStatus implements Monitorable {
 
 	public void setLaunchRodCleared(boolean launchRod) {
 		this.launchRodCleared = launchRod;
-		this.modID++;
+		if (launchRod) {
+			startWarningsTime = getSimulationTime() + WARNINGS_WAIT;
+		}
+		modID = new ModID();
 	}
 
 	public boolean isLaunchRodCleared() {
@@ -365,7 +391,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setApogeeReached(boolean apogeeReached) {
 		this.apogeeReached = apogeeReached;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public boolean isApogeeReached() {
@@ -374,7 +400,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setTumbling(boolean tumbling) {
 		this.tumbling = tumbling;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public boolean isTumbling() {
@@ -383,7 +409,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setLanded(boolean landed) {
 		this.landed = landed;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public boolean isLanded() {
@@ -396,7 +422,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setMaxAlt(double maxAlt) {
 		this.maxAlt = maxAlt;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public double getMaxAltTime() {
@@ -405,7 +431,7 @@ public class SimulationStatus implements Monitorable {
 
 	public void setMaxAltTime(double maxAltTime) {
 		this.maxAltTime = maxAltTime;
-		this.modID++;
+		modID = new ModID();
 	}
 
 	public Set<RecoveryDevice> getDeployedRecoveryDevices() {
@@ -414,9 +440,30 @@ public class SimulationStatus implements Monitorable {
 
 	public void setWarnings(WarningSet warnings) {
 		if (this.warnings != null)
-			this.modIDadd += this.warnings.getModID();
-		this.modID++;
+			this.modIDadd = new ModID();
 		this.warnings = warnings;
+	}
+
+	public void addWarning(Warning warning) {
+		log.trace("Add warning: \"" + warning + "\"");
+		
+		if (null == warnings) {
+			setWarnings(new WarningSet());
+		}
+
+		// For a variety of reasons, the Warning actually added to
+		// the set may not be the one passed in. So we add the Warning
+		// to the set, then read it again.
+		warnings.add(warning);
+		warning = (Warning) warnings.get(warning);
+
+		getFlightDataBranch().addEvent(new FlightEvent(FlightEvent.Type.SIM_WARN, getSimulationTime(), null, warning));
+	}
+
+	public void addWarnings(WarningSet warnings) {
+		for (Warning warning : warnings) {
+			addWarning(warning);
+		}
 	}
 
 	public WarningSet getWarnings() {
@@ -427,10 +474,38 @@ public class SimulationStatus implements Monitorable {
 		return eventQueue;
 	}
 
+	/**
+	 * Remove all events that came from components which are no longer
+	 * attached from the event queue.
+	 */
+	public void removeUnattachedEvents() {
+		Iterator<FlightEvent> i = getEventQueue().iterator();
+		while (i.hasNext()) {
+			if (!isAttached(i.next())) {
+				i.remove();
+			}
+		}
+	}
+
+	/**
+	 * Determine whether a FlightEvent came from a RocketComponent that is
+	 * still attached to the current stage
+	 *
+	 * @param event the event to be tested
+	 * return true if attached, false if not
+	 */
+	private boolean isAttached(FlightEvent event) {
+		if ((null == event.getSource()) ||
+			(null == event.getSource().getParent()) ||
+			getConfiguration().isComponentActive(event.getSource())) {
+			return true;
+			}
+		return false;
+	}
+	
 	public void setSimulationConditions(SimulationConditions simulationConditions) {
 		if (this.simulationConditions != null)
-			this.modIDadd += this.simulationConditions.getModID();
-		this.modID++;
+			this.modIDadd = new ModID();
 		this.simulationConditions = simulationConditions;
 	}
 
@@ -479,10 +554,8 @@ public class SimulationStatus implements Monitorable {
 	}
 
 	@Override
-	public int getModID() {
-		return (modID + modIDadd + simulationConditions.getModID() + configuration.getModID() +
-				flightDataBranch.getModID() + deployedRecoveryDevices.getModID() +
-				eventQueue.getModID() + warnings.getModID());
+	public ModID getModID() {
+		return modID;
 	}
 
 	public String toEventDebug() {
@@ -517,12 +590,90 @@ public class SimulationStatus implements Monitorable {
 	}
 
 	/**
+	 * Store data from current sim status
+	 */
+	public void storeData() {
+		flightDataBranch.addPoint();
+		flightDataBranch.setValue(FlightDataType.TYPE_TIME, getSimulationTime());
+		flightDataBranch.setValue(FlightDataType.TYPE_ALTITUDE, getRocketPosition().z);
+		flightDataBranch.setValue(FlightDataType.TYPE_ALTITUDE_ABOVE_SEA, getRocketWorldPosition().getAltitude());
+		flightDataBranch.setValue(FlightDataType.TYPE_POSITION_X, getRocketPosition().x);
+		flightDataBranch.setValue(FlightDataType.TYPE_POSITION_Y, getRocketPosition().y);
+		
+		flightDataBranch.setValue(FlightDataType.TYPE_LATITUDE, getRocketWorldPosition().getLatitudeRad());
+		flightDataBranch.setValue(FlightDataType.TYPE_LONGITUDE, getRocketWorldPosition().getLongitudeRad());
+		
+		flightDataBranch.setValue(FlightDataType.TYPE_POSITION_XY,
+					  MathUtil.hypot(getRocketPosition().x, getRocketPosition().y));
+		flightDataBranch.setValue(FlightDataType.TYPE_POSITION_DIRECTION,
+					  Math.atan2(getRocketPosition().y, getRocketPosition().x));
+
+		flightDataBranch.setValue(FlightDataType.TYPE_VELOCITY_XY,
+					  MathUtil.hypot(getRocketVelocity().x, getRocketVelocity().y));
+		flightDataBranch.setValue(FlightDataType.TYPE_VELOCITY_Z, getRocketVelocity().z);
+		setMaxZVelocity(Math.max(getRocketVelocity().z, getMaxZVelocity()));
+		
+		flightDataBranch.setValue(FlightDataType.TYPE_VELOCITY_TOTAL, getRocketVelocity().length());
+		
+		Coordinate c = getRocketOrientationQuaternion().rotateZ();
+		double theta = Math.atan2(c.z, MathUtil.hypot(c.x, c.y));
+		double phi = Math.atan2(c.y, c.x);
+		if (phi < -(Math.PI - 0.0001))
+			phi = Math.PI;
+		flightDataBranch.setValue(FlightDataType.TYPE_ORIENTATION_THETA, theta);
+		flightDataBranch.setValue(FlightDataType.TYPE_ORIENTATION_PHI, phi);
+		flightDataBranch.setValue(FlightDataType.TYPE_COMPUTATION_TIME,
+				(System.nanoTime() - getSimulationStartWallTime()) / 1000000000.0);
+	}		
+
+	/**
+	 * Get max Z velocity so far in flight
+	 * @return max Z velocity so far
+	 */
+	public double getMaxZVelocity() {
+		return maxZVelocity;
+	}
+
+	/**
+	 * Set max Z velocity so far
+	 * @param zVel current z velocity
+	 */
+	private void setMaxZVelocity(double zVel) {
+		if (zVel > maxZVelocity) {
+			maxZVelocity = zVel;
+			modID = new ModID();
+		}
+	}
+	
+	/**
+	 * Determine whether (most) flight event warnings are currently being saved.
+	 * Warnings are not saved until 0.25 seconds after leaving the rail, and again
+	 * after Z velocity is reduced to 20% of the max.
+	 */
+	boolean recordWarnings() {
+		if (!launchRodCleared) {
+			return false;
+		}
+		
+		if (getSimulationTime() < startWarningsTime) {
+			return false;
+		}
+
+		if (getRocketVelocity().z < getMaxZVelocity() * 0.2) {
+			return false;
+		}
+
+		return true;
+	}
+		
+	/**
 	 * Add a flight event to the event queue unless a listener aborts adding it.
 	 *
 	 * @param event		the event to add to the queue.
 	 */
 	public void addEvent(FlightEvent event) throws SimulationException {
 		if (SimulationListenerHelper.fireAddFlightEvent(this, event)) {
+			
 			if (event.getType() != FlightEvent.Type.ALTITUDE) {
 				log.trace("Adding event to queue:  " + event);
 			}

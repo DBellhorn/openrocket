@@ -1,11 +1,17 @@
 package info.openrocket.core.rocketcomponent;
 
 import java.awt.geom.Point2D;
-import java.util.*;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedList;
+import java.util.List;
 
-import info.openrocket.core.util.*;
 import info.openrocket.core.rocketcomponent.position.AnglePositionable;
+import info.openrocket.core.util.BoundingBox;
+import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.MathUtil;
+import info.openrocket.core.util.Transformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,13 +114,13 @@ public abstract class FinSet extends ExternalComponent
 	/*
 	 * Fin tab properties.
 	 */
-	private static final double minimumTabArea = 1e-8;
+	private static final double minimumTabArea = 1.0e-8;
 	private double tabHeight = 0;
 	private double tabLength = 0.05;
 	// this is always measured from the root-lead point.
 	private double tabPosition = 0.0;
 	private AxialMethod tabOffsetMethod = AxialMethod.MIDDLE;
-	private double tabOffset = 0.;
+	private double tabOffset = 0.0;
 
 	/*
 	 * Fin fillet properties
@@ -187,7 +193,7 @@ public abstract class FinSet extends ExternalComponent
 
 	@Override
 	public double getBoundingRadius(){
-		return 0.;
+		return 0.0;
 	}
 
 	/**
@@ -305,6 +311,10 @@ public abstract class FinSet extends ExternalComponent
 	 * 
 	 */
 	public void setTabHeight(final double newTabHeight) {
+		setTabHeight(newTabHeight, true);
+	}
+
+	public void setTabHeight(double newTabHeight, boolean validateTabHeight) {
 		for (RocketComponent listener : configListeners) {
 			if (listener instanceof FinSet) {
 				((FinSet) listener).setTabHeight(newTabHeight);
@@ -314,10 +324,13 @@ public abstract class FinSet extends ExternalComponent
 		if (MathUtil.equals(this.tabHeight, MathUtil.max(newTabHeight, 0))){
 			return;
 		}
-		
+
 		tabHeight = newTabHeight;
-		double maxTabHeight = getMaxTabHeight();
-		this.tabHeight = Math.min(this.tabHeight,  maxTabHeight);
+		if (validateTabHeight) {
+			double maxTabHeight = getMaxTabHeight();
+			this.tabHeight = Math.min(this.tabHeight, maxTabHeight);
+		}
+
 		fireComponentChangeEvent(ComponentChangeEvent.MASS_CHANGE);
 	}
 	
@@ -330,6 +343,10 @@ public abstract class FinSet extends ExternalComponent
 	 * set tab length
 	 */
 	public void setTabLength(final double lengthRequest) {
+		setTabLength(lengthRequest, true);
+	}
+
+	public void setTabLength(final double lengthRequest, boolean updateTabPosition) {
 		for (RocketComponent listener : configListeners) {
 			if (listener instanceof FinSet) {
 				((FinSet) listener).setTabLength(lengthRequest);
@@ -339,15 +356,17 @@ public abstract class FinSet extends ExternalComponent
 		if (MathUtil.equals(tabLength, MathUtil.max(lengthRequest, 0))) {
 			return;
 		}
-		
+
 		tabLength = lengthRequest;
-		
-		updateTabPosition();
-		
+
+		if (updateTabPosition) {
+			updateTabPosition();
+		}
+
 		fireComponentChangeEvent(ComponentChangeEvent.MASS_CHANGE);
 	}
 
-	public void updateTabPosition(){
+	public void updateTabPosition() {
 		this.tabPosition = this.tabOffsetMethod.getAsPosition(tabOffset, tabLength, length);
 	}
 	
@@ -356,7 +375,7 @@ public abstract class FinSet extends ExternalComponent
 	 * 
 	 * @param offsetRequest new requested tab offset
 	 */
-	public void setTabOffset( final double offsetRequest) {
+	public void setTabOffset(final double offsetRequest) {
 		for (RocketComponent listener : configListeners) {
 			if (listener instanceof FinSet) {
 				((FinSet) listener).setTabOffset(offsetRequest);
@@ -367,6 +386,18 @@ public abstract class FinSet extends ExternalComponent
 		updateTabPosition();
 		
 		fireComponentChangeEvent(ComponentChangeEvent.MASS_CHANGE);
+	}
+
+	public double getTabOffset(AxialMethod method) {
+		return method.getAsOffset(tabPosition, tabLength, length);
+	}
+
+	public double getTabOffset() {
+		return getTabOffset(this.tabOffsetMethod);
+	}
+
+	public double getTabPosition(AxialMethod method) {
+		return method.getAsPosition(tabOffset, tabLength, length);
 	}
 	
 	public AxialMethod getTabOffsetMethod() {
@@ -397,18 +428,6 @@ public abstract class FinSet extends ExternalComponent
 		return tabPosition;
 	}
 
-	public double getTabOffset(AxialMethod method){
-		return method.getAsOffset(tabPosition, tabLength, length);
-	}
-
-	public double getTabOffset(){
-		return getTabOffset(this.tabOffsetMethod);
-	}
-
-	public double getTabPosition(AxialMethod method) {
-		return method.getAsPosition(tabOffset, tabLength, length);
-	}
-
 	/**
 	 * Return the tab trailing edge position *from the front of the fin*.
 	 */
@@ -429,16 +448,12 @@ public abstract class FinSet extends ExternalComponent
 	}
 	
 	public void validateFinTabLength() {
-		//System.err.println(String.format("    >> Fin Tab Length: %.6f @ %.6f", tabLength, tabOffset));
-		
 		final double xTabBack = getTabTrailingEdge();
 		if (this.length < xTabBack) {
 			this.tabLength -= (xTabBack - this.length);
 		}
 		
 		tabLength = Math.max(0, tabLength);
-		
-		//System.err.println(String.format("    << Fin Tab Length: %.6f @ %.6f", tabLength, tabOffset));
 	}
 
 	/**
@@ -560,7 +575,7 @@ public abstract class FinSet extends ExternalComponent
 				- innerArcAngle * bodyRadius * bodyRadius / 2);
 
 		if (Double.isNaN(crossSectionArea)) {
-			crossSectionArea = 0.;
+			crossSectionArea = 0.0;
 		} else {
 			// each fin has a fillet on each side
 			crossSectionArea *= 2;
@@ -631,7 +646,7 @@ public abstract class FinSet extends ExternalComponent
 			Transformation rotation = Transformation.rotate_x( getAngleOffset());
 			return rotation.transform(filletVolumeCentroid);
 		} else{
-			return filletVolumeCentroid.setY(0.);
+			return filletVolumeCentroid.setY(0.0);
 		}
 	}
 
@@ -1059,7 +1074,7 @@ public abstract class FinSet extends ExternalComponent
 			return null;
 		}
 
-		return getMountPoints(0., parent.getLength(), 0,0);
+		return getMountPoints(0.0, parent.getLength(), 0,0);
 	}
 
 	/**
@@ -1660,7 +1675,7 @@ public abstract class FinSet extends ExternalComponent
 		if (finCount == 1) {
 			this.centerOfMass = baseRotation.transform( eachFinCenterOfMass );
 		} else {
-			this.centerOfMass = eachFinCenterOfMass.setY(0.).setWeight( eachFinMass * this.finCount);
+			this.centerOfMass = eachFinCenterOfMass.setY(0.0).setWeight( eachFinMass * this.finCount);
 		}
 	}
 	

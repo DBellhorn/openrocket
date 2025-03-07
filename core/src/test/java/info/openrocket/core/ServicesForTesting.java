@@ -12,25 +12,27 @@ import info.openrocket.core.l10n.DebugTranslator;
 import info.openrocket.core.l10n.ResourceBundleTranslator;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.material.Material;
+import info.openrocket.core.models.atmosphere.ExtendedISAModel;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.preset.ComponentPreset;
 import info.openrocket.core.preset.ComponentPreset.Type;
-import info.openrocket.core.startup.Preferences;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Provider;
+import info.openrocket.core.simulation.DefaultSimulationOptionFactory;
 
 public class ServicesForTesting extends AbstractModule {
 	
 	@Override
 	protected void configure() {
-		bind(Preferences.class).to(PreferencesForTesting.class);
+		bind(ApplicationPreferences.class).to(PreferencesForTesting.class);
 		bind(Translator.class).toProvider(TranslatorProviderForTesting.class);
 		bind(RocketDescriptor.class).to(RocketDescriptorImpl.class);
 	}
 	
 	public static class TranslatorProviderForTesting implements Provider<Translator> {
 		
-		private final AtomicReference<Translator> translator = new AtomicReference<Translator>();
+		private final AtomicReference<Translator> translator = new AtomicReference<>();
 		
 		@Override
 		public Translator get() {
@@ -61,7 +63,7 @@ public class ServicesForTesting extends AbstractModule {
 		
 	}
 	
-	public static class PreferencesForTesting extends Preferences {
+	public static class PreferencesForTesting extends ApplicationPreferences {
 		
 		private static java.util.prefs.Preferences root = null;
 		
@@ -91,6 +93,12 @@ public class ServicesForTesting extends AbstractModule {
 		
 		@Override
 		public double getDouble(String key, double defaultValue) {
+			if (key.equals(ApplicationPreferences.LAUNCH_TEMPERATURE) || key.equals(DefaultSimulationOptionFactory.SIMCONDITION_ATMOS_TEMP)) {
+				return ExtendedISAModel.STANDARD_TEMPERATURE;
+			}
+			if (key.equals(ApplicationPreferences.LAUNCH_PRESSURE) || key.equals(DefaultSimulationOptionFactory.SIMCONDITION_ATMOS_PRESSURE)) {
+				return ExtendedISAModel.STANDARD_PRESSURE;
+			}
 			// TODO Auto-generated method stub
 			return 0;
 		}

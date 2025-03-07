@@ -302,8 +302,8 @@ public class MathUtil {
 			return Double.NaN;
 		}
 
-		List<Number> sorted = new ArrayList<Number>(values);
-		Collections.sort(sorted, new Comparator<Number>() {
+		List<Number> sorted = new ArrayList<>(values);
+		sorted.sort(new Comparator<>() {
 			@Override
 			public int compare(Number o1, Number o2) {
 				return Double.compare(o1.doubleValue(), o2.doubleValue());
@@ -331,7 +331,6 @@ public class MathUtil {
 	 *         or if t is outsize the domain.
 	 */
 	public static double interpolate(List<Double> domain, List<Double> range, double t) {
-
 		if (domain == null || range == null || domain.size() != range.size()) {
 			return Double.NaN;
 		}
@@ -368,7 +367,34 @@ public class MathUtil {
 		}
 
 		return range.get(left) + (t - domain.get(left)) * deltay / deltax;
-
 	}
 
+	/**
+	 * Use interpolation to determine the value of the function at point t.
+	 * @param a the lower bound
+	 * @param b the upper bound
+	 * @param fraction the fraction between a and b
+	 * @return the interpolated value
+	 */
+	public static double interpolate(double a, double b, double fraction) {
+		return a + (b - a) * fraction;
+	}
+
+	/**
+	 * Convert an angle in degrees to radians.
+	 * @param deg the angle in degrees
+	 * @return the angle in radians
+	 */
+	public static double deg2rad(double deg) {
+		return deg * Math.PI / 180;
+	}
+
+	/**
+	 * Convert an angle in radians to degrees.
+	 * @param rad the angle in radians
+	 * @return the angle in degrees
+	 */
+	public static double rad2deg(double rad) {
+		return rad * 180 / Math.PI;
+	}
 }

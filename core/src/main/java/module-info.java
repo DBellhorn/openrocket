@@ -14,7 +14,7 @@ open module info.openrocket.core {
 	requires org.graalvm.sdk;
 	requires org.graalvm.js;
 	requires org.graalvm.truffle;
-	requires transitive de.javagl.obj;
+	requires de.javagl.obj;
 	requires com.sun.istack.runtime;
 	requires jakarta.activation;
 	requires jakarta.inject;
@@ -26,6 +26,7 @@ open module info.openrocket.core {
 	requires com.opencsv;
 	requires org.commonmark;
 	requires org.locationtech.jts;
+	requires org.objectweb.asm.commons;
 
 	// TODO: I'm a JPMS noob, so I just exported each package. Should really check which ones are actually needed.
 	exports info.openrocket.core.aerodynamics;
@@ -34,6 +35,7 @@ open module info.openrocket.core {
 	exports info.openrocket.core.appearance.defaults;
 	exports info.openrocket.core.arch;
 	exports info.openrocket.core.communication;
+	exports info.openrocket.core.componentanalysis;
 	exports info.openrocket.core.database;
 	exports info.openrocket.core.database.motor;
 	exports info.openrocket.core.document;
@@ -97,6 +99,7 @@ open module info.openrocket.core {
 	exports info.openrocket.core.util;
 	exports info.openrocket.core.util.enums;
 	exports info.openrocket.core.utils;
+	exports info.openrocket.core.preferences;
 
 	// Service providers
 	// Also edit core/src/main/resources/META-INF/services !! (until gradle-modules-plugin supports service

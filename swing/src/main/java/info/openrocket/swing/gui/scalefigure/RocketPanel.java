@@ -22,7 +22,20 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.stream.Collectors;
 
-import javax.swing.*;
+import javax.swing.ComboBoxModel;
+import javax.swing.DefaultComboBoxModel;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JSeparator;
+import javax.swing.JSlider;
+import javax.swing.JViewport;
+import javax.swing.ListCellRenderer;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.event.TreeSelectionEvent;
@@ -33,6 +46,7 @@ import javax.swing.tree.TreeSelectionModel;
 import info.openrocket.core.aerodynamics.AerodynamicCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
 import info.openrocket.core.aerodynamics.FlightConditions;
+import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
@@ -59,9 +73,11 @@ import info.openrocket.core.util.ChangeSource;
 import info.openrocket.core.util.Chars;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.MathUtil;
+import info.openrocket.core.util.ModID;
 import info.openrocket.core.util.StateChangeListener;
 
 import info.openrocket.swing.gui.components.StyledLabel;
+import info.openrocket.core.componentanalysis.CAParameters;
 import net.miginfocom.swing.MigLayout;
 import info.openrocket.swing.gui.adaptors.DoubleModel;
 import info.openrocket.swing.gui.components.BasicSlider;
@@ -90,7 +106,7 @@ import org.slf4j.LoggerFactory;
  * @author Bill Kuker <bkuker@billkuker.com>
  */
 @SuppressWarnings("serial")
-public class RocketPanel extends JPanel implements TreeSelectionListener, ChangeSource {
+public class RocketPanel extends JPanel implements TreeSelectionListener, ChangeSource, CAParameters.CAParametersListener {
 
 	private static final Translator trans = Application.getTranslator();
 	private static final Logger log = LoggerFactory.getLogger(RocketPanel.class);
@@ -159,12 +175,12 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 	private double cpRoll = Double.NaN;
 
 	// The functional ID of the rocket that was simulated
-	private int flightDataFunctionalID = -1;
+	private ModID flightDataFunctionalID = ModID.INVALID;
     private FlightConfigurationId flightDataMotorID = null;
 
 	private SimulationWorker backgroundSimulationWorker = null;
 
-	private List<EventListener> listeners = new ArrayList<EventListener>();
+	private List<EventListener> listeners = new ArrayList<>();
 
 	// Store the basic frame to know which tab is selected (Rocket design, Motors & Configuration, Flight simulations)
 	private final BasicFrame basicFrame;
@@ -217,11 +233,26 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 		scrollPane = new ScaleScrollPane(figure) {
 			private static final long serialVersionUID = 1L;
 			final CustomClickCountListener clickCountListener = new CustomClickCountListener();
+			private Point mousePressedLoc = null;
+			private double originalFigureRotation = 0;
 
 			@Override
 			public void mouseClicked(MouseEvent event) {
 				clickCountListener.click();
 				handleMouseClick(event, clickCountListener.getClickCount());
+			}
+
+			public void mousePressed(MouseEvent e) {
+				if (is3d) {
+					return;
+				}
+				mousePressedLoc = e.getPoint();
+				originalFigureRotation = figure.getRotation();
+			}
+
+			@Override
+			public void mouseDragged(MouseEvent e) {
+				handleMouseDragged(e, mousePressedLoc, originalFigureRotation);
 			}
 		};
 		scrollPane.getViewport().setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
@@ -413,6 +444,7 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 
 		// Create slider and scroll pane
 		rotationModel = new DoubleModel(figure, "Rotation", UnitGroup.UNITS_ANGLE, 0, 2 * Math.PI);
+		figure.addChangeListener(rotationModel);
 		UnitSelector us = new UnitSelector(rotationModel, true);
 		us.setHorizontalAlignment(JLabel.CENTER);
 		add(us, "alignx 50%, growx");
@@ -422,12 +454,13 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 		add(figureHolder, "grow, spany 2, wmin 300lp, hmin 100lp, wrap");
 
 		// Add rotation slider
-		// Dummy label to find the minimum size to fit "360deg"
-		JLabel l = new JLabel("360" + Chars.DEGREE);
+		// Dummy label to find the minimum size to fit "360.0deg"
+		JLabel l = new JLabel("360.0" + Chars.DEGREE);
 		Dimension d = l.getPreferredSize();
 
-		add(rotationSlider = new BasicSlider(rotationModel.getSliderModel(0, 2 * Math.PI), JSlider.VERTICAL, true),
-				"ax 50%, wrap, width " + (d.width + 6) + "px:null:null, growy");
+		us.setMinimumSize(new Dimension(d.width, us.getPreferredSize().height));
+		rotationSlider = new BasicSlider(rotationModel.getSliderModel(0, 2 * Math.PI), JSlider.VERTICAL, true);
+		add(rotationSlider, "ax 50%, wrap, width " + (d.width + 6) + "px:null:null, growy");
 		rotationSlider.addChangeListener(new ChangeListener() {
 			@Override
 			public void stateChanged(ChangeEvent e) {
@@ -507,6 +540,15 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 		selectionModel = m;
 		selectionModel.addTreeSelectionListener(this);
 		valueChanged((TreeSelectionEvent) null); // updates FigureParameters
+	}
+
+	public void setSelectedComponent(RocketComponent component) {
+		if (component == null) {
+			selectionModel.setSelectionPath(null);
+			return;
+		}
+		TreePath path = ComponentTreeModel.makeTreePath(component);
+		selectionModel.setSelectionPath(path);
 	}
 
 	/**
@@ -619,6 +661,7 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 		// If no component is clicked, do nothing
 		if (clicked.length == 0) {
 			selectionModel.setSelectionPath(null);
+			ComponentConfigDialog.disposeDialog();
 			return;
 		}
 
@@ -639,8 +682,7 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 			if (newClick) {
 				for (RocketComponent rocketComponent : clicked) {
 					if (!selectedComponents.contains(rocketComponent)) {
-						TreePath path = ComponentTreeModel.makeTreePath(rocketComponent);
-						selectionModel.setSelectionPath(path);
+						setSelectedComponent(rocketComponent);
 					}
 				}
 			}
@@ -655,13 +697,14 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 
 		if (clicked == null || clicked.length == 0) {
 			selectionModel.setSelectionPaths(null);
+			ComponentConfigDialog.disposeDialog();
 			return;
 		}
 
 		// Check for double-click.
 		// If the shift/meta key is not pressed and the component was not already selected, ignore the double click and treat it as a single click
 		if (clickCount == 2) {
-			if (event.isShiftDown() || event.isMetaDown()) {
+			if (!selectedComponents.isEmpty() && (event.isShiftDown() || event.isMetaDown())) {
 				List<TreePath> paths = new ArrayList<>(Arrays.asList(selectionModel.getSelectionPaths()));
 				RocketComponent component = selectedComponents.get(selectedComponents.size() - 1);
 				component.clearConfigListeners();
@@ -673,7 +716,7 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 						paths.add(path);
 						selectionModel.setSelectionPaths(paths.toArray(new TreePath[0]));
 						selectedComponents = Arrays.stream(selectionModel.getSelectionPaths())
-								.map(c1 -> (RocketComponent) c1.getLastPathComponent()).collect(Collectors.toList());
+								.map(c1 -> (RocketComponent) c1.getLastPathComponent()).toList();
 						component = c;
 						break;
 					}
@@ -703,29 +746,50 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 			}
 		}
 
-		// If the shift-button is held, add a newly clicked component to the selection path
-		if (clickCount == 1 && (event.isShiftDown() || event.isMetaDown())) {
-			List<TreePath> paths = new ArrayList<>(Arrays.asList(selectionModel.getSelectionPaths()));
-			for (int i = 0; i < clicked.length; i++) {
-				if (!selectedComponents.contains(clicked[i])) {
-					TreePath path = ComponentTreeModel.makeTreePath(clicked[i]);
-					paths.add(path);
-					break;
+
+		if (clickCount == 1) {
+			// If the shift-button is held, add a newly clicked component to the selection path
+			if (event.isShiftDown() || event.isMetaDown()) {
+				List<TreePath> paths = new ArrayList<>(Arrays.asList(selectionModel.getSelectionPaths()));
+				for (int i = 0; i < clicked.length; i++) {
+					if (!selectedComponents.contains(clicked[i])) {
+						TreePath path = ComponentTreeModel.makeTreePath(clicked[i]);
+						paths.add(path);
+						break;
+					}
+					// If all the clicked components are already in the selection, then deselect an object
+					if (i == clicked.length - 1) {
+						paths.removeIf(path -> path.getLastPathComponent() == clicked[0]);
+					}
 				}
-				// If all the clicked components are already in the selection, then deselect an object
-				if (i == clicked.length - 1) {
-					paths.removeIf(path -> path.getLastPathComponent() == clicked[0]);
+				try {
+					selectionModel.setSelectionPaths(paths.toArray(new TreePath[0]));
+				} catch (Exception e) {
+					System.out.println(e);
 				}
 			}
-			selectionModel.setSelectionPaths(paths.toArray(new TreePath[0]));
-		}
-		// Single click, so set the selection to the first clicked component
-		else {
-			if (!selectedComponents.contains(clicked[0])) {
-				TreePath path = ComponentTreeModel.makeTreePath(clicked[0]);
-				selectionModel.setSelectionPath(path);
+			// Single click, so set the selection to the first clicked component
+			else {
+				if (!selectedComponents.contains(clicked[0])) {
+					TreePath path = ComponentTreeModel.makeTreePath(clicked[0]);
+					selectionModel.setSelectionPath(path);
+				}
 			}
 		}
+	}
+
+	private void handleMouseDragged(MouseEvent event, Point originalDragLocation, double originalRotation) {
+		if (originalDragLocation == null || is3d) {
+			return;
+		}
+
+		int dy = event.getY() - originalDragLocation.y;
+
+		double rotationOffset = ((double) dy / scrollPane.getHeight()) * Math.PI;
+		double newRotation = originalRotation - rotationOffset;
+		// Ensure the rotation is within the range [0, 2*PI]
+		newRotation = (newRotation + 2 * Math.PI) % (2 * Math.PI);
+		figure.setRotation(newRotation);
 	}
 
 	/**
@@ -937,11 +1001,7 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 	private boolean updateFlightData(Simulation sim) {
 		FlightConfigurationId curID = document.getSelectedConfiguration().getFlightConfigurationID();
 		if (sim.getFlightConfigurationId().compareTo(curID) == 0) {
-			if (sim.hasSimulationData()) {
-				extraText.setFlightData(sim.getSimulatedData());
-			} else {
-				extraText.setFlightData(FlightData.NaN_DATA);
-			}
+			extraText.setSimulation(sim);
 			return true;
 		}
 		return false;
@@ -1102,9 +1162,10 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 	@Override
 	public void valueChanged(TreeSelectionEvent e) {
 		TreePath[] paths = selectionModel.getSelectionPaths();
-		if (paths == null) {
+		if (paths == null || paths.length == 0) {
 			figure.setSelection(null);
 			figure3d.setSelection(null);
+			ComponentConfigDialog.disposeDialog();
 			return;
 		}
 
@@ -1114,6 +1175,26 @@ public class RocketPanel extends JPanel implements TreeSelectionListener, Change
 		figure.setSelection(components);
 
 		figure3d.setSelection(components);
+	}
+
+	@Override
+	public void onThetaChanged(double theta) {
+		setCPTheta(theta);
+	}
+
+	@Override
+	public void onAOAChanged(double aoa) {
+		setCPAOA(aoa);
+	}
+
+	@Override
+	public void onMachChanged(double mach) {
+		setCPMach(mach);
+	}
+
+	@Override
+	public void onRollRateChanged(double rollRate) {
+		setCPRoll(rollRate);
 	}
 
 	private static class ViewTypeComboBoxModel extends DefaultComboBoxModel<VIEW_TYPE> {

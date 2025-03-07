@@ -36,7 +36,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 	private ConfigHandler configHandler;
 	private FlightDataHandler dataHandler;
 
-	private final List<SimulationExtension> extensions = new ArrayList<SimulationExtension>();
+	private final List<SimulationExtension> extensions = new ArrayList<>();
 
 	public SingleSimulationHandler(OpenRocketDocument doc, DocumentLoadingContext context) {
 		this.doc = doc;
@@ -87,9 +87,10 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			extensions.add(compatibilityExtension(content.trim()));
 		} else if (element.equals("extension") && !StringUtils.isEmpty(attributes.get("extensionid"))) {
 			String id = attributes.get("extensionid");
+			id = id.replace("net.sf.openrocket", "info.openrocket.core");
 			SimulationExtension extension = null;
 			Set<SimulationExtensionProvider> extensionProviders = Application.getInjector()
-					.getInstance(new Key<Set<SimulationExtensionProvider>>() {
+					.getInstance(new Key<>() {
 					});
 			for (SimulationExtensionProvider p : extensionProviders) {
 				if (p.getIds().contains(id)) {
@@ -153,6 +154,13 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		simulation.setFlightConfigurationId(idToSet);
 
 		doc.addSimulation(simulation);
+	}
+
+	/**
+	 * @return the warning set associated with this simulation
+	 */
+	public WarningSet getWarningSet() {
+		return dataHandler.getWarningSet();
 	}
 
 	private SimulationExtension compatibilityExtension(String className) {

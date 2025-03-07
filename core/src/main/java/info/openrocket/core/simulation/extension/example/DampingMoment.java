@@ -25,10 +25,13 @@ import info.openrocket.core.unit.UnitGroup;
 public class DampingMoment extends AbstractSimulationExtension {
 	private static final Logger log = LoggerFactory.getLogger(DampingMoment.class);
 
+	// Keep it internal until time to publish in the FlightDataBranch
+	private double Cdm = Double.NaN;
+	
 	// Save it as a FlightDataType
 	private static final FlightDataType cdm = FlightDataType.getType("Damping moment coefficient", "Cdm",
 			UnitGroup.UNITS_COEFFICIENT);
-	private static final ArrayList<FlightDataType> types = new ArrayList<FlightDataType>();
+	private static final ArrayList<FlightDataType> types = new ArrayList<>();
 
 	DampingMoment() {
 		types.add(cdm);
@@ -62,9 +65,14 @@ public class DampingMoment extends AbstractSimulationExtension {
 				throws SimulationException {
 
 			// status.getFlightDataBranch().setValue(cdm, aerodynamicPart + propulsivePart);
-			status.getFlightDataBranch().setValue(cdm, calculate(status, flightConditions));
+			Cdm = calculate(status, flightConditions);
 
 			return flightConditions;
+		}
+
+		@Override
+		public void postStep(SimulationStatus status) {
+			status.getFlightDataBranch().setValue(cdm, Cdm);
 		}
 
 		private double calculate(SimulationStatus status, FlightConditions flightConditions) {
@@ -142,7 +150,7 @@ public class DampingMoment extends AbstractSimulationExtension {
 			double rho = flightConditions.getAtmosphericConditions().getDensity();
 			double ar = flightConditions.getRefArea();
 
-			aerodynamicPart = aerodynamicPart * .5 * rho * v * ar;
+			aerodynamicPart = aerodynamicPart * 0.5 * rho * v * ar;
 
 			return aerodynamicPart + propulsivePart;
 		}

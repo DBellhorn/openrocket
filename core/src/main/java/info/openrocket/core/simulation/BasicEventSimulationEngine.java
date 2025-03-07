@@ -42,10 +42,6 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 	private final SimulationStepper tumbleStepper = new BasicTumbleStepper();
 	private final SimulationStepper groundStepper = new GroundStepper();
 
-	// Constant holding 20 degrees in radians. This is the AOA condition
-	// necessary to transition to tumbling.
-	private final static double AOA_TUMBLE_CONDITION = Math.PI / 9.0;
-	
 	// The thrust must be below this value for the transition to tumbling.
 	// TODO HIGH: this is an arbitrary value
 	private final static double THRUST_TUMBLE_CONDITION = 0.01;
@@ -57,7 +53,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 	private FlightConfigurationId fcid;
 
 	// this is just a list of simulation branches to
-	Deque<SimulationStatus> toSimulate = new ArrayDeque<SimulationStatus>();
+	Deque<SimulationStatus> toSimulate = new ArrayDeque<>();
 
 	FlightData flightData;
 	
@@ -84,12 +80,6 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				branchName = trans.get("BasicEventSimulationEngine.nullBranchName");
 			}
 			FlightDataBranch initialBranch = new FlightDataBranch( branchName, FlightDataType.TYPE_TIME);
-			
-			// put a point on it so we can plot if we get an early abort event
-			initialBranch.addPoint();
-			initialBranch.setValue(FlightDataType.TYPE_TIME, 0.0);
-			initialBranch.setValue(FlightDataType.TYPE_ALTITUDE, 0.0);
-			
 			currentStatus.setFlightDataBranch(initialBranch);
 			
 			// Sanity checks on design and configuration
@@ -110,10 +100,10 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			
 			// No recovery device
 			if (!simulationConfig.hasRecoveryDevice()) {
-				currentStatus.getWarnings().add(Warning.NO_RECOVERY_DEVICE);
+				currentStatus.addWarning(Warning.NO_RECOVERY_DEVICE);
 			}
 			
-			currentStatus.getEventQueue().add(new FlightEvent(FlightEvent.Type.LAUNCH, 0, simulationConditions.getRocket()));
+			currentStatus.addEvent(new FlightEvent(FlightEvent.Type.LAUNCH, 0, simulationConditions.getRocket()));
 			toSimulate.push(currentStatus);
 		
 			SimulationListenerHelper.fireStartSimulation(currentStatus);
@@ -122,14 +112,13 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 					break;
 				}
 				currentStatus = toSimulate.pop();
+				currentStatus.setWarnings(flightData.getWarningSet());
 				FlightDataBranch dataBranch = currentStatus.getFlightDataBranch();
 				flightData.addBranch(dataBranch);
 				log.info(">>Starting simulation of branch: " + currentStatus.getFlightDataBranch().getName());
+				simulateLoop(simulationConditions);
 				
-				simulateLoop();
 				dataBranch.immute();
-				flightData.getWarningSet().addAll(currentStatus.getWarnings());
-				
 				log.info(String.format("<<Finished simulating branch: %s    curTime:%s    finTime:%s",
 									   dataBranch.getName(),
 									   currentStatus.getSimulationTime(),
@@ -147,6 +136,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			if (!flightData.getWarningSet().isEmpty()) {
 				log.info("Warnings at the end of simulation:  " + flightData.getWarningSet());
 			}
+			
 		} catch (SimulationException e) {
 			throw e;
 		} finally {
@@ -154,15 +144,25 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 		}
 	}
 	
-	private void simulateLoop() throws SimulationException {
+	private void simulateLoop(SimulationConditions simulationConditions) throws SimulationException {
+		// Initialize the simulation.
 
-		// Initialize the simulation. We'll use the flight stepper unless we're already
-		// on the ground
-		if (currentStatus.isLanded())
+		// Select the appropriate stepper:
+		//     On the ground: ground stepper
+		//     Tumbling: tumble stepper
+		//     At least one recovery device deployed: landing stepper
+		//     Otherwise: flight stepper
+
+		if (currentStatus.isLanded()) {
 			currentStepper = groundStepper;
-		else
+		} else if (currentStatus.isTumbling()) {
+			currentStepper = tumbleStepper;
+		} else if (!currentStatus.getDeployedRecoveryDevices().isEmpty()) {
+			currentStepper = landingStepper;
+		} else {
 			currentStepper = flightStepper;
-		
+		}
+
 		currentStatus = currentStepper.initialize(currentStatus);
 		double previousSimulationTime = currentStatus.getSimulationTime();
 		
@@ -175,7 +175,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			checkGeometry(currentStatus);
 			
 			// Start the simulation
-			while (handleEvents()) {
+			while (handleEvents(simulationConditions)) {
 				// Take the step
 				double oldAlt = currentStatus.getRocketPosition().z;
 				
@@ -190,9 +190,11 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 						maxStepTime = 0.0;
 					}
 
-					log.trace(
-							"Taking simulation step at t=" + currentStatus.getSimulationTime() + " altitude " + oldAlt);
-					currentStepper.step(currentStatus, maxStepTime);
+					if (maxStepTime > MathUtil.EPSILON) {
+						log.trace(
+								  "Taking simulation step at t=" + currentStatus.getSimulationTime() + " altitude " + oldAlt);
+						currentStepper.step(currentStatus, maxStepTime);
+					}
 				}
 				SimulationListenerHelper.firePostStep(currentStatus);
 				
@@ -204,7 +206,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				if (!currentStatus.isLanded())
 					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.ALTITUDE, currentStatus.getSimulationTime(),
 											 currentStatus.getConfiguration().getRocket(),
-											 new Pair<Double, Double>(oldAlt, currentStatus.getRocketPosition().z)));
+							new Pair<>(oldAlt, currentStatus.getRocketPosition().z)));
 				
 				if (currentStatus.getRocketPosition().z > currentStatus.getMaxAlt()) {
 					currentStatus.setMaxAlt(currentStatus.getRocketPosition().z);
@@ -263,20 +265,32 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 //					}
 //				}
 				
-				// Check for Tumbling
-				// Conditions for transition are:
-				// is not already tumbling
-				// and not stable (cg > cp)
-				// and aoa > AOA_TUMBLE_CONDITION threshold
-
-				if (!currentStatus.isTumbling()) {
+				// Check for fin stall and either set tumbling or LargeAOA warning depending on
+				// rocket stability margin
+				// Inhibited if already tumbling, parachutes deployed, or on the ground
+				if (!currentStatus.isTumbling() &&
+					(currentStatus.getDeployedRecoveryDevices().size() == 0) &&
+					!currentStatus.isLanded()) {
 					final double cp = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CP_LOCATION);
 					final double cg = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CG_LOCATION);
 					final double aoa = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_AOA);
-					
-					if (cg > cp && aoa > AOA_TUMBLE_CONDITION) {
-						currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
-					}					
+					final double margin =
+						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallMargin();
+
+					// large AOA -- stalling.					
+					if (margin < 0) {
+						// If we're stable, put a warning about large AOA
+						// note -- if cp is NaN (which it is while on the rod) cg > cp is false
+						if (cg > cp) {
+							// Not stable, so transition to tumbling
+							currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
+						} else {
+							// Stable, so warning about AOA
+							if (currentStatus.recordWarnings()) {
+								currentStatus.addWarning(new Warning.LargeAOA(aoa));
+							}
+						}
+					}
 				}
 
 				// If I'm on the ground and have no events in the queue, I'm done
@@ -285,7 +299,6 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 
 				previousSimulationTime = currentStatus.getSimulationTime();
 			}
-			
 		} catch (SimulationException e) {
 			
 			SimulationListenerHelper.fireEndSimulation(currentStatus, e);
@@ -304,7 +317,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 	 * Each event that has occurred before or at the current simulation time is
 	 * processed.  Suitable events are also added to the flight data.
 	 */
-	private boolean handleEvents() throws SimulationException {
+	private boolean handleEvents(SimulationConditions simulationConditions) throws SimulationException {
 		boolean ret = true;
 		FlightEvent event;
 
@@ -317,7 +330,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			if (currentStatus.isLanded() &&
 				(event.getType() != FlightEvent.Type.ALTITUDE) &&
 				(event.getType() != FlightEvent.Type.SIMULATION_END))
-				currentStatus.getWarnings().add(new Warning.EventAfterLanding(event));
+				currentStatus.addWarning(new Warning.EventAfterLanding(event));
 
 			// Check for motor ignition events, add ignition events to queue
 			for (MotorClusterState state : currentStatus.getActiveMotors() ){
@@ -334,16 +347,6 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 
 					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.IGNITION, ignitionTime, (RocketComponent) mount, state ));
 				}
-			}
-			
-			// Ignore events for components that are no longer attached to the rocket
-			if (event.getSource() != null && event.getSource().getParent() != null &&
-					!currentStatus.getConfiguration().isComponentActive(event.getSource())) {
-				log.trace("Ignoring event from unattached component");
-				log.debug("    source " + event.getSource());
-				log.debug("    parent " + event.getSource().getParent());
-				log.debug("    active " + currentStatus.getConfiguration().isComponentActive(event.getSource()));
-				continue;
 			}
 			
 			// Call simulation listeners, allow aborting event handling
@@ -364,9 +367,9 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				int stageNo = stage.getStageNumber();
 				if (stageNo == 0)
 					continue;
-				
+
 				StageSeparationConfiguration separationConfig = stage.getSeparationConfigurations().get(this.fcid);
-				if (separationConfig.getSeparationEvent().isSeparationEvent(event, stage)) {
+				if (separationConfig.getSeparationEvent().isSeparationEvent(separationConfig, event, stage)) {
 					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.STAGE_SEPARATION,
 							event.getTime() + separationConfig.getSeparationDelay(), stage));
 				}
@@ -502,12 +505,12 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 							}
 						}
 						if (numActiveBelow != 1) {
-							currentStatus.getWarnings().add(Warning.SEPARATION_ORDER);
+							currentStatus.addWarning(Warning.SEPARATION_ORDER);
 						}
 
 					// If I haven't cleared the rail yet, flag a warning
 					if (!currentStatus.isLaunchRodCleared()) {
-						currentStatus.getWarnings().add(Warning.EARLY_SEPARATION);
+						currentStatus.addWarning(Warning.EARLY_SEPARATION);
 					}
 
 					// Create a new simulation branch for the booster
@@ -520,10 +523,12 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 						// Mark the current status as having dropped the current stage and all stages
 						// below it
 						currentStatus.getConfiguration().clearStagesBelow(stageNumber);
-
+						currentStatus.removeUnattachedEvents();
+						
 						// Mark the booster status as having no active stages above
 						boosterStatus.getConfiguration().clearStagesAbove(stageNumber);
-
+						boosterStatus.removeUnattachedEvents();
+						
 						toSimulate.push(boosterStatus);
 
 					// Make sure upper stages can still be simulated
@@ -553,26 +558,26 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			case RECOVERY_DEVICE_DEPLOYMENT:
 				RocketComponent c = event.getSource();
 				int n = c.getStageNumber();
+
 				// Ignore event if stage not active
 				if (currentStatus.getConfiguration().isStageActive(n)) {
 					// TODO: HIGH: Check stage activeness for other events as well?
 
 					// Check whether any motor in the active stages is active anymore
 					for (MotorClusterState state : currentStatus.getActiveMotors() ) {
-						if (state.isDelaying() || state.isSpent()) {
-							continue;
+						if (state.getThrust(currentStatus.getSimulationTime()) > MathUtil.EPSILON) {
+							currentStatus.abortSimulation(SimulationAbort.Cause.DEPLOY_UNDER_THRUST);
 						}
-						currentStatus.abortSimulation(SimulationAbort.Cause.DEPLOY_UNDER_THRUST);
 					}
 
 					// Check for launch rod
 					if (!currentStatus.isLaunchRodCleared()) {
-						currentStatus.getWarnings().add(Warning.RECOVERY_LAUNCH_ROD);
+						currentStatus.addWarning(Warning.RECOVERY_LAUNCH_ROD);
 					}
 
 					// Check current velocity
 					if (currentStatus.getRocketVelocity().length() > 20) {
-						currentStatus.getWarnings().add(new Warning.HighSpeedDeployment(currentStatus.getRocketVelocity().length()));
+						currentStatus.addWarning(new Warning.HighSpeedDeployment(currentStatus.getRocketVelocity().length(), c));
 					}
 
 					currentStatus.setLiftoff(true);
@@ -600,6 +605,10 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			
 			case GROUND_HIT:
 				currentStatus.setLanded(true);
+
+				// take one last simulation step so we can save current
+				// status and compute parameters at the instant of impact
+				currentStepper.step(currentStatus, Double.NaN);
 				
 				currentStepper = groundStepper;
 				currentStatus = currentStepper.initialize(currentStatus);
@@ -609,6 +618,11 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			
 			case SIM_ABORT:
 				ret = false;
+
+				// store current status to flight data.  Don't take one last simulation step,
+				// as the SIM_ABORT may well be to avoid an exception
+				currentStatus.storeData();
+				
 				currentStatus.getFlightDataBranch().addEvent(event);
 				break;
 
@@ -625,27 +639,25 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				// Inhibit if we've deployed a parachute or we're on the ground
 				if ((currentStatus.getDeployedRecoveryDevices().size() > 0) || currentStatus.isLanded())
 					break;
-
-				currentStepper = tumbleStepper;
-				currentStatus = currentStepper.initialize(currentStatus);
-
+				
 				final boolean tooMuchThrust = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_THRUST_FORCE) > THRUST_TUMBLE_CONDITION;
 				if (tooMuchThrust) {
 					currentStatus.abortSimulation(SimulationAbort.Cause.TUMBLE_UNDER_THRUST);
-				}					
-				
-				currentStatus.setTumbling(true);
-				currentStatus.getFlightDataBranch().addEvent(event);
+				} else {
+					currentStepper = tumbleStepper;
+					currentStatus = currentStepper.initialize(currentStatus);
+					
+					currentStatus.setTumbling(true);
+					currentStatus.getFlightDataBranch().addEvent(event);
+				}
 				break;
 			}
 			
 		}
 
-		// TODO FUTURE : do not hard code the 1200 (maybe even make it configurable by
-		// the user)
-		if (1200 < currentStatus.getSimulationTime()) {
+		if (currentStatus.getSimulationTime() >= simulationConditions.getMaxSimulationTime()) {
 			ret = false;
-			log.error("Simulation hit max time (1200s): aborting.");
+			log.error("Simulation hit max time (" + RK4SimulationStepper.RECOMMENDED_MAX_TIME + "s): aborting.");
 			currentStatus.getFlightDataBranch()
 					.addEvent(new FlightEvent(FlightEvent.Type.SIMULATION_END, currentStatus.getSimulationTime()));
 		}

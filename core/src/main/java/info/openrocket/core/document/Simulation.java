@@ -13,6 +13,7 @@ import info.openrocket.core.aerodynamics.AerodynamicCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.formatting.RocketDescriptor;
+import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
@@ -32,6 +33,7 @@ import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.ArrayList;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.ChangeSource;
+import info.openrocket.core.util.ModID;
 import info.openrocket.core.util.SafetyMutex;
 import info.openrocket.core.util.StateChangeListener;
 
@@ -45,25 +47,86 @@ import info.openrocket.core.util.StateChangeListener;
  */
 public class Simulation implements ChangeSource, Cloneable {
 	private static final Logger log = LoggerFactory.getLogger(Simulation.class);
+	private static final Translator trans = Application.getTranslator();
 	
 	public static enum Status {
 		/** Up-to-date */
-		UPTODATE,
+		UPTODATE(trans.get("Simulation.Status.UPTODATE"),
+				 trans.get("Simulation.Status.Description.UPTODATE")),
 		
 		/** Loaded from file, status probably up-to-date */
-		LOADED,
+		LOADED(trans.get("Simulation.Status.LOADED"),
+			   trans.get("Simulation.Status.Description.LOADED")),
 		
 		/** Data outdated */
-		OUTDATED,
+		OUTDATED(trans.get("Simulation.Status.OUTDATED"),
+				 trans.get("Simulation.Status.Description.OUTDATED")),
 		
 		/** Imported external data */
-		EXTERNAL,
+		EXTERNAL(trans.get("Simulation.Status.EXTERNAL"),
+				 trans.get("Simulation.Status.Description.EXTERNAL")),
 		
 		/** Not yet simulated */
-		NOT_SIMULATED,
+		NOT_SIMULATED(trans.get("Simulation.Status.NOT_SIMULATED"),
+				 trans.get("Simulation.Status.Description.NOT_SIMULATED")),
 		
 		/** Can't be simulated, NO_MOTORS **/
-		CANT_RUN
+		CANT_RUN(trans.get("Simulation.Status.CANT_RUN"),
+				 trans.get("Simulation.Status.Description.CANT_RUN")),
+
+		/** Aborted when last run **/
+		ABORTED(trans.get("Simulation.Status.ABORTED"),
+				trans.get("Simulation.Status.Description.ABORTED"));
+
+		private final String name;
+		private final String description;
+
+		private Status(String name, String description) {
+			this.name = name;
+			this.description = description;
+		}
+
+		// just the name of the status
+		@Override
+		public String toString() {
+			return name;
+		}
+
+		// a longer, more "user friendly" description.
+		public String getDescription(Simulation sim) {
+			switch (sim.getStatus()) {
+			    case ABORTED:
+					StringBuilder builder = new StringBuilder();
+
+					// We'll put every abort event on a new line (note that more than one branch can abort)
+					FlightData data = sim.getSimulatedData();
+					if (null != data) {
+						for (int b = 0; b < data.getBranchCount(); b++) {
+							FlightEvent abortEvent = data.getBranch(b).getFirstEvent(FlightEvent.Type.SIM_ABORT);
+							if (abortEvent != null) {
+								builder.append(description)
+									.append("<i>: ")
+									.append(abortEvent.getData().toString())
+									.append("</i><br>");
+							}
+						}
+					}
+					
+					// It shouldn't be possible to abort without an abort event. But just in case...
+					if (builder.length() > 0) {
+						return builder.toString();
+					} else {
+						return description;
+					}
+
+			    default:
+					return description;
+			}
+		}
+	}
+
+	public String getStatusDescription() {
+		return getStatus().getDescription(this);
 	}
 	
 	private final RocketDescriptor descriptor = Application.getInjector().getInstance(RocketDescriptor.class);
@@ -83,7 +146,7 @@ public class Simulation implements ChangeSource, Cloneable {
 	// TODO: HIGH: Change to use actual conditions class??
 	private SimulationOptions options = new SimulationOptions();
 	
-	private ArrayList<SimulationExtension> simulationExtensions = new ArrayList<SimulationExtension>();
+	private ArrayList<SimulationExtension> simulationExtensions = new ArrayList<>();
 	
 	
 	private final Class<? extends SimulationEngine> simulationEngineClass = BasicEventSimulationEngine.class;
@@ -93,14 +156,14 @@ public class Simulation implements ChangeSource, Cloneable {
 	private final Class<? extends MassCalculator> massCalculatorClass = MassCalculator.class;
 	
 	/** Listeners for this object */
-	private List<EventListener> listeners = new ArrayList<EventListener>();
+	private List<EventListener> listeners = new ArrayList<>();
 	
 	
 	/** The conditions actually used in the previous simulation, or null */
 	private SimulationOptions simulatedConditions = null;
 	private String simulatedConfigurationDescription = null;
 	private FlightData simulatedData = null;
-	private int simulatedConfigurationID = -1;
+	private ModID simulatedConfigurationModID = ModID.INVALID;
 
 	/**
 	 * Create a new simulation for the rocket. Parent document should also be provided.
@@ -158,7 +221,7 @@ public class Simulation implements ChangeSource, Cloneable {
 
 		final FlightConfiguration config = rocket.getSelectedConfiguration();
 		this.setFlightConfigurationId(config.getFlightConfigurationID());
-		this.simulatedConfigurationID = config.getModID();
+		this.simulatedConfigurationModID = config.getModID();
 
 		this.simulationExtensions.addAll(extensions);
 	}
@@ -330,7 +393,7 @@ public class Simulation implements ChangeSource, Cloneable {
 		final FlightConfiguration config = rocket.getFlightConfiguration(this.getId()).clone();
 
 		if (isStatusUpToDate(status)) {
-			if (config.getModID() != simulatedConfigurationID || !options.equals(simulatedConditions)) {
+			if (config.getModID() != simulatedConfigurationModID || !options.equals(simulatedConditions)) {
 				status = Status.OUTDATED;
 			}
 		}
@@ -347,6 +410,11 @@ public class Simulation implements ChangeSource, Cloneable {
 			status = Status.CANT_RUN;
 		}
 
+		// If it has errors, it has aborted
+		if (hasErrors()) {
+			status = Status.ABORTED;
+		}
+
 		return status;
 	}
 
@@ -355,9 +423,11 @@ public class Simulation implements ChangeSource, Cloneable {
 	 */
 	public boolean hasErrors() {
 		FlightData data = getSimulatedData();
-		for (int branchNo = 0; branchNo < data.getBranchCount(); branchNo++) {
-			if (data.getBranch(branchNo).getFirstEvent(FlightEvent.Type.SIM_ABORT) != null) {
-				return true;
+		if (null != data) {
+			for (int branchNo = 0; branchNo < data.getBranchCount(); branchNo++) {
+				if (hasErrors(branchNo)) {
+					return true;
+				}
 			}
 		}
 		return false;
@@ -385,7 +455,7 @@ public class Simulation implements ChangeSource, Cloneable {
 	 * Syncs the modID with its flight configuration.
 	 */
 	public void syncModID() {
-		this.simulatedConfigurationID = getActiveConfiguration().getModID();
+		this.simulatedConfigurationModID = getActiveConfiguration().getModID();
 		fireChangeEvent();
 	}
 	
@@ -419,12 +489,13 @@ public class Simulation implements ChangeSource, Cloneable {
 
 			SimulationConditions simulationConditions = options.toSimulationConditions();
 			simulationConditions.setSimulation(this);
-			for (SimulationListener l : additionalListeners) {
-				simulationConditions.getSimulationListenerList().add(l);
-			}
 			
 			for (SimulationExtension extension : simulationExtensions) {
 				extension.initialize(simulationConditions);
+			}
+			
+			for (SimulationListener l : additionalListeners) {
+				simulationConditions.getSimulationListenerList().add(l);
 			}
 			
 			long t1, t2;
@@ -440,7 +511,7 @@ public class Simulation implements ChangeSource, Cloneable {
 			// Set simulated info after simulation
 			simulatedConditions = options.clone();
 			simulatedConfigurationDescription = descriptor.format(this.rocket, getId());
-			simulatedConfigurationID = getActiveConfiguration().getModID();
+			simulatedConfigurationModID = getActiveConfiguration().getModID();
 			if (simulator != null) {
 				simulatedData = simulator.getFlightData();
 			}
@@ -545,15 +616,15 @@ public class Simulation implements ChangeSource, Cloneable {
 			copy.mutex = SafetyMutex.newInstance();
 			copy.status = Status.NOT_SIMULATED;
 			copy.options = this.options.clone();
-			copy.simulationExtensions = new ArrayList<SimulationExtension>();
+			copy.simulationExtensions = new ArrayList<>();
 			for (SimulationExtension c : this.simulationExtensions) {
 				copy.simulationExtensions.add(c.clone());
 			}
-			copy.listeners = new ArrayList<EventListener>();
+			copy.listeners = new ArrayList<>();
 			copy.simulatedConditions = null;
 			copy.simulatedConfigurationDescription = null;
 			copy.simulatedData = null;
-			copy.simulatedConfigurationID = -1;
+			copy.simulatedConfigurationModID = ModID.INVALID;
 			
 			return copy;
 			
@@ -573,7 +644,7 @@ public class Simulation implements ChangeSource, Cloneable {
 			clone.name = this.name;
 			clone.configId = this.configId;
 			clone.simulatedConfigurationDescription = this.simulatedConfigurationDescription;
-			clone.simulatedConfigurationID = this.simulatedConfigurationID;
+			clone.simulatedConfigurationModID = this.simulatedConfigurationModID;
 			clone.options = this.options.clone();
 			clone.listeners = new ArrayList<>();
 			if (this.simulatedConditions != null) {
@@ -608,7 +679,7 @@ public class Simulation implements ChangeSource, Cloneable {
 			this.name = simulation.name;
 			this.configId = simulation.configId;
 			this.simulatedConfigurationDescription = simulation.simulatedConfigurationDescription;
-			this.simulatedConfigurationID = simulation.simulatedConfigurationID;
+			this.simulatedConfigurationModID = simulation.simulatedConfigurationModID;
 			this.options.copyConditionsFrom(simulation.options);
 			if (simulation.simulatedConditions == null) {
 				this.simulatedConditions = null;

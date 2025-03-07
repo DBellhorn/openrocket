@@ -11,6 +11,9 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 
+import info.openrocket.core.rocketcomponent.ComponentChangeEvent;
+import info.openrocket.core.rocketcomponent.ComponentChangeListener;
+import info.openrocket.core.rocketcomponent.MassObject;
 import net.miginfocom.swing.MigLayout;
 
 import info.openrocket.core.document.OpenRocketDocument;
@@ -26,7 +29,6 @@ import info.openrocket.swing.gui.adaptors.DoubleModel;
 import info.openrocket.swing.gui.adaptors.EnumModel;
 import info.openrocket.swing.gui.components.BasicSlider;
 import info.openrocket.swing.gui.components.UnitSelector;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
 
 
 @SuppressWarnings("serial")
@@ -124,10 +126,17 @@ public class MassComponentConfig extends RocketComponentConfig {
 		panel.add(new BasicSlider(od.getSliderModel(0, 0.04, 0.2)), "w 100lp, wrap");
 
 		////// Automatic
-		JCheckBox checkAutoPackedRadius = new JCheckBox(od.getAutomaticAction());
+		final JCheckBox checkAutoPackedRadius = new JCheckBox(od.getAutomaticAction());
 		checkAutoPackedRadius.setText(trans.get("ParachuteCfg.checkbox.AutomaticPacked"));
 		checkAutoPackedRadius.setToolTipText(trans.get("ParachuteCfg.checkbox.AutomaticPacked.ttip"));
+		checkAutoPackedRadius.setEnabled(((MassObject) component).getMaxParentRadius() > 0);
 		panel.add(checkAutoPackedRadius, "skip, span 2, wrap");
+		component.getParent().addComponentChangeListener(new ComponentChangeListener() {
+			@Override
+			public void componentChanged(ComponentChangeEvent e) {
+				checkAutoPackedRadius.setEnabled(((MassObject) component).getMaxParentRadius() > 0);
+			}
+		});
 		order.add(checkAutoPackedRadius);
 
 
@@ -195,7 +204,7 @@ public class MassComponentConfig extends RocketComponentConfig {
 		
 		
 		//// Reset button
-		JButton button = new SelectColorButton(trans.get("MassComponentCfg.but.Reset"));
+		JButton button = new JButton(trans.get("MassComponentCfg.but.Reset"));
 		button.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {

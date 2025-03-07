@@ -18,6 +18,7 @@
 /core/build
 /core/tmp
 /core/misc
+/core/bin
 
 # /core/doc/techdoc/
 /core/doc/techdoc/*.aux
@@ -31,6 +32,7 @@
 /core/resources-src/pix/splashscreen-sormus.xcf.gz
 
 /swing/build
+/swing/bin
 /swing/tmp
 /core/src/main/resources/datafiles/components
 
@@ -47,6 +49,9 @@
 **/.idea/jsLibraryMappings.xml
 **/.idea/copilot
 **/.idea/shelf
+swing/OpenRocket Swing.iml
+core/OpenRocket Core.iml
+lib-test/OpenRocket Library Test.iml
 
 # Sensitive or high-churn files:
 **/.idea/dataSources.ids
@@ -89,3 +94,6 @@ fabric.properties
 openrocket.log
 
 *.snap
+
+# Sphinx documentation
+docs/build

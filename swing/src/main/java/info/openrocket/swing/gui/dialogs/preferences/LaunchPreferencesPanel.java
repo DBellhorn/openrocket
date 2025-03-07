@@ -34,8 +34,7 @@ public class LaunchPreferencesPanel extends PreferencesPanel {
 		add(warning, "spanx, growx 0, gapbottom para, wrap");
 
 		// Simulation conditions
-		SimulationConditionsPanel.addSimulationConditionsPanel(this, preferences);
-
+		SimulationConditionsPanel.addSimulationConditionsPanel(this, preferences, false);
 	}
 
 	private static void initColors() {
@@ -43,7 +42,7 @@ public class LaunchPreferencesPanel extends PreferencesPanel {
 		UITheme.Theme.addUIThemeChangeListener(LaunchPreferencesPanel::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		darkErrorColor = GUIUtil.getUITheme().getDarkErrorColor();
 	}
 

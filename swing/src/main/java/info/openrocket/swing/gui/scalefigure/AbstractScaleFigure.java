@@ -54,7 +54,7 @@ public abstract class AbstractScaleFigure extends JPanel {
 	// which frames does this transform between ?
 	protected AffineTransform projection = null;
 
-	protected final List<EventListener> listeners = new LinkedList<EventListener>();
+	protected final List<EventListener> listeners = new LinkedList<>();
 
 	private static Color backgroundColor;
 
@@ -86,7 +86,7 @@ public abstract class AbstractScaleFigure extends JPanel {
 		UITheme.Theme.addUIThemeChangeListener(AbstractScaleFigure::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		backgroundColor = GUIUtil.getUITheme().getBackgroundColor();
 	}
 

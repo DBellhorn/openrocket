@@ -29,13 +29,14 @@ public final class ExampleDesignFileAction extends JMenu {
     private static final String[] exampleFileOrder = {
         // Examples of basic rockets
         "A simple model rocket",
-        "Two-stage rocket",
-        "Three-stage rocket",
+        "Two stage high power rocket",
+        "Three stage low power rocket",
         "TARC payload rocket",
         "Tube fin rocket",
         "3D Printable Nose Cone and Fins",
         null,
         // Examples demonstrating complex rocket features
+		"Deployable payload",
         "Airstart timing",
         "Base drag hack (short-wide)",
         "Chute release",

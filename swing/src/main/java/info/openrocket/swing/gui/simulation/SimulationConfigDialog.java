@@ -1,21 +1,21 @@
 package info.openrocket.swing.gui.simulation;
 
+import info.openrocket.core.preferences.ApplicationPreferences;
 import net.miginfocom.swing.MigLayout;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.document.events.DocumentChangeEvent;
 import info.openrocket.swing.gui.components.ConfigurationComboBox;
 import info.openrocket.swing.gui.components.StyledLabel;
+import info.openrocket.swing.gui.util.ColorConversion;
 import info.openrocket.swing.gui.util.GUIUtil;
 import info.openrocket.swing.gui.theme.UITheme;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.simulation.extension.SimulationExtension;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.startup.Preferences;
 import info.openrocket.core.util.StateChangeListener;
 
 import javax.swing.JButton;
@@ -24,6 +24,7 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
@@ -32,6 +33,7 @@ import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -54,7 +56,7 @@ public class SimulationConfigDialog extends JDialog {
 	private JButton okButton;
 	private JButton cancelButton;
 	private static final Translator trans = Application.getTranslator();
-	private static final Preferences preferences = Application.getPreferences();
+	private static final ApplicationPreferences preferences = Application.getPreferences();
 
 
 	private final WindowListener applyChangesToSimsListener;
@@ -111,7 +113,13 @@ public class SimulationConfigDialog extends JDialog {
 
 		//// Simulation Warnings
 		final SimulationWarningsPanel warningsTab = new SimulationWarningsPanel(simulationList[0]);
-		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Warnings"), warningsTab);
+		JScrollPane warningsScrollPane = new JScrollPane(warningsTab);
+		warningsScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		warningsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		Dimension d = warningsScrollPane.getPreferredSize();
+		warningsScrollPane.setPreferredSize(new Dimension(d.width, 500));
+		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Warnings"), warningsScrollPane);
+
 		if (isMultiCompEdit()) {
 			tabbedPane.setEnabledAt(WARNINGS_IDX, false);
 			tabbedPane.setToolTipTextAt(WARNINGS_IDX, trans.get("SimulationConfigDialog.tab.warnDis.ttip"));
@@ -120,7 +128,7 @@ public class SimulationConfigDialog extends JDialog {
 		//// Plot data
 		boolean hasData = simulationList[0].hasSimulationData();
 		if (hasData) {
-			this.plotTab = new SimulationPlotPanel(simulationList[0]);
+			this.plotTab = SimulationPlotPanel.create(simulationList[0]);
 		} else {
 			this.plotTab = null;
 		}
@@ -133,7 +141,7 @@ public class SimulationConfigDialog extends JDialog {
 
 		//// Export data
 		if (hasData) {
-			this.exportTab = new SimulationExportPanel(simulationList[0]);
+			this.exportTab = SimulationExportPanel.create(simulationList[0]);
 		} else {
 			this.exportTab = null;
 		}
@@ -203,6 +211,7 @@ public class SimulationConfigDialog extends JDialog {
 		this.addWindowListener(applyChangesToSimsListener);
 
 		GUIUtil.setDisposableDialogOptions(this, null);
+		GUIUtil.rememberWindowPosition(this);
 	}
 
 	private static void initColors() {
@@ -210,7 +219,7 @@ public class SimulationConfigDialog extends JDialog {
 		UITheme.Theme.addUIThemeChangeListener(SimulationConfigDialog::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		multiCompEditColor = GUIUtil.getUITheme().getMultiCompEditColor();
 	}
 
@@ -254,7 +263,7 @@ public class SimulationConfigDialog extends JDialog {
 
 			private void setText() {
 				String name = field.getText();
-				if (name == null || name.equals(""))
+				if (name == null || name.isEmpty())
 					return;
 				simulationList[0].setName(name);
 
@@ -287,6 +296,21 @@ public class SimulationConfigDialog extends JDialog {
 		});
 		topPanel.add(configComboBox, "span");
 
+		//// Display current simulation status
+		JLabel statusLabel = new JLabel(trans.get("simpanel.col.Status") + ":");
+		topPanel.add(statusLabel, "growx 0, gapright para");
+
+		StringBuilder statusBuilder = new StringBuilder("<html>");
+
+		String statusText = simulationList[0].getStatusDescription();
+		Color statusColor = GUIUtil.getUITheme().getStatusColor(simulationList[0].getStatus());
+	
+		JLabel simStatus = new JLabel("<html>" +
+									  ColorConversion.formatHTMLColor(statusColor, statusText) +
+									  "</html>"
+									  );
+		topPanel.add(simStatus);
+		
 		topPanel.add(new JPanel(), "growx, wrap");
 
 		contentPanel.add(topPanel, "growx, wrap");
@@ -314,7 +338,7 @@ public class SimulationConfigDialog extends JDialog {
 
 		//// Run simulation button
 		// TODO: disable when sim is up to date?
-		/*JButton button = new SelectColorButton(trans.get("SimulationEditDialog.btn.simulateAndPlot"));
+		/*JButton button = new JButton(trans.get("SimulationEditDialog.btn.simulateAndPlot"));
 		if (!isSingleEdit()) {
 			button.setText(trans.get("SimulationEditDialog.btn.simulate"));
 		}
@@ -332,7 +356,7 @@ public class SimulationConfigDialog extends JDialog {
 		simEditPanel.add(button, "align right, gapright 10lp, tag ok");*/
 
 		//// Cancel button
-		this.cancelButton = new SelectColorButton(trans.get("dlg.but.cancel"));
+		this.cancelButton = new JButton(trans.get("dlg.but.cancel"));
 		this.cancelButton.setToolTipText(trans.get("SimulationConfigDialog.btn.Cancel.ttip"));
 		this.cancelButton.addActionListener(new ActionListener() {
 			@Override
@@ -350,7 +374,7 @@ public class SimulationConfigDialog extends JDialog {
 		bottomPanel.add(this.cancelButton, "split 2, tag ok");
 
 		//// Ok button
-		this.okButton = new SelectColorButton(trans.get("dlg.but.ok"));
+		this.okButton = new JButton(trans.get("dlg.but.ok"));
 		this.okButton.setToolTipText(trans.get("SimulationConfigDialog.btn.OK.ttip"));
 		this.okButton.addActionListener(new ActionListener() {
 			@Override
@@ -373,12 +397,13 @@ public class SimulationConfigDialog extends JDialog {
 					if (plot != null) {
 						plot.setVisible(true);
 					}
-					closeDialog();
 					return;
 				} else if (tabIdx == EXPORT_IDX) {
-					if (exportTab == null || exportTab.doExport()) {
+					if (exportTab == null) {
 						closeDialog();
+						return;
 					}
+					exportTab.doExport();
 					return;
 				}
 

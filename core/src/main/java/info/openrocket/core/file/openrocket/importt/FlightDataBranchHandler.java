@@ -1,9 +1,12 @@
 package info.openrocket.core.file.openrocket.importt;
 
 import java.util.HashMap;
+import java.util.UUID;
 
+import info.openrocket.core.logging.Message;
 import info.openrocket.core.logging.SimulationAbort;
 import info.openrocket.core.logging.SimulationAbort.Cause;
+import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.file.DocumentLoadingContext;
 import info.openrocket.core.file.simplesax.AbstractElementHandler;
@@ -131,15 +134,14 @@ class FlightDataBranchHandler extends AbstractElementHandler {
 		if (element.equals("event")) {
 			double time;
 			FlightEvent.Type type;
-			SimulationAbort abort = null;
-			SimulationAbort.Cause cause = null;
+			Message data = null;
 			RocketComponent source = null;
 			String sourceID;
 
 			try {
 				time = DocumentConfig.stringToDouble(attributes.get("time"));
 			} catch (NumberFormatException e) {
-				warnings.add("Illegal event specification, ignoring.");
+				warnings.add("Illegal event time specification, ignoring: " + e.getMessage());
 				return;
 			}
 			
@@ -153,16 +155,37 @@ class FlightDataBranchHandler extends AbstractElementHandler {
 			Rocket rocket = context.getOpenRocketDocument().getRocket();
 			sourceID = attributes.get("source");
 			if (sourceID != null) {
-				source = rocket.findComponent(sourceID);
+				source = rocket.findComponent(UUID.fromString(sourceID));
 			}
 
+			// For warning events, get the warning
+			if (type == FlightEvent.Type.SIM_WARN) {
+				String warnid = attributes.get("warnid");
+				if (null != warnid) {
+					data = simHandler.getWarningSet().findById(UUID.fromString(warnid));
+				}
+			}
+			
 			// For aborts, get the cause
-			cause = (Cause) DocumentConfig.findEnum(attributes.get("cause"), SimulationAbort.Cause.class);
+			Cause cause = (Cause) DocumentConfig.findEnum(attributes.get("cause"), SimulationAbort.Cause.class);
 			if (cause != null) {
-				abort = new SimulationAbort(cause);
+				data = new SimulationAbort(cause);
 			}
 
-			branch.addEvent(new FlightEvent(type, time, source, abort));
+			FlightEvent event = null;
+			try {
+				event = new FlightEvent(type, time, source, data);
+				branch.addEvent(event);
+			} catch (Exception e) {
+				warnings.add("Illegal parameters for FlightEvent: " + e.getMessage());
+			}
+
+			// For EventAfterLanding warning events, hook the event up to the warning
+			if ((type == FlightEvent.Type.SIM_WARN) &&
+				(null != data) &&
+				(data instanceof Warning.EventAfterLanding)) {
+				((Warning.EventAfterLanding) data).setEvent(event);
+			}
 			return;
 		}
 		

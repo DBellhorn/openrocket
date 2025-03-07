@@ -1,5 +1,7 @@
 package info.openrocket.core.logging;
 
+import java.lang.IllegalArgumentException;
+
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.motor.Motor;
 import info.openrocket.core.rocketcomponent.RocketComponent;
@@ -19,7 +21,8 @@ public abstract class Warning extends Message {
 	 * @return a Message with the specific text and priority.
 	 */
 	public static Warning fromString(String text, MessagePriority priority) {
-		return new Warning.Other(text, priority);
+		Warning.Other warn = new Warning.Other(text, priority);
+		return warn;
 	}
 
 	/**
@@ -28,8 +31,6 @@ public abstract class Warning extends Message {
 	public static Warning fromString(String text) {
 		return fromString(text, MessagePriority.NORMAL);
 	}
-
-
 	
 	/////////////  Specific warning classes  /////////////
 	
@@ -51,6 +52,10 @@ public abstract class Warning extends Message {
 			this.aoa = aoa;
 			setPriority(MessagePriority.NORMAL);
 		}
+
+		public double getAOA() {
+			return aoa;
+		}
 		
 		@Override
 		public String getMessageDescription() {
@@ -59,7 +64,8 @@ public abstract class Warning extends Message {
 				return trans.get("Warning.LargeAOA.str1");
 			//// Large angle of attack encountered (
 			return (trans.get("Warning.LargeAOA.str2") +
-					UnitGroup.UNITS_ANGLE.getDefaultUnit().toString(aoa) + ").");
+					//					UnitGroup.UNITS_ANGLE.getDefaultUnit().toString(aoa) + ").");
+					UnitGroup.UNITS_ANGLE.toStringUnit(aoa) + ")");
 		}
 
 		@Override
@@ -71,6 +77,14 @@ public abstract class Warning extends Message {
 			if (Double.isNaN(this.aoa)) // If this has value NaN then replace
 				return true;
 			return (o.aoa > this.aoa);
+		}
+
+		@Override
+		public void replaceContents(Message other) throws IllegalArgumentException {
+			if (!(other instanceof LargeAOA)) {
+				throw new IllegalArgumentException();
+			}
+			this.aoa = ((LargeAOA) other).aoa;
 		}
 
 		// Don't compare aoa, otherwise you have a million LargeAOA warnings with different values
@@ -96,19 +110,26 @@ public abstract class Warning extends Message {
 		private double recoverySpeed;
 		
 		/**
-		 * Sole constructor.  The argument is the speed that caused this warning.
+		 * Sole constructor.  The arguments are the speed that caused this warning,
+		 * and the parachute that is opening
 		 * 
 		 * @param speed  the speed that caused this warning
+		 * @param chute  the chute(s) that were opening
 		 */
-		public HighSpeedDeployment(double speed) {
+		public HighSpeedDeployment(double speed, RocketComponent... chute) {
 			this.recoverySpeed = speed;
+			this.setSources(chute);
 			setPriority(MessagePriority.NORMAL);
+		}
+
+		public double getSpeed() {
+			return recoverySpeed;
 		}
 		
 		@Override
 		public String getMessageDescription() {
 			if (Double.isNaN(recoverySpeed)) {
-				return trans.get("Warning.RECOVERY_HIGH_SPEED");
+				 return trans.get("Warning.RECOVERY_HIGH_SPEED");
 			}
 			return trans.get("Warning.RECOVERY_HIGH_SPEED") + " (" + UnitGroup.UNITS_VELOCITY.toStringUnit(recoverySpeed) + ")";
 		}
@@ -149,17 +170,33 @@ public abstract class Warning extends Message {
 			setPriority(MessagePriority.HIGH);
 		}
 
-		// I want a warning on every event that occurs after we land,
-		// so severity of problem is clear to the user
+		// this is only used for patching the data structure while reading the .ork file
+		public void setEvent(FlightEvent event) {
+			this.event = event;
+		}
+
 		@Override
 		public boolean equals(Object o) {
-			return false;
+			if ((null == o) || !(o instanceof EventAfterLanding)) {
+				return false;
+			}
+
+			EventAfterLanding e = (EventAfterLanding) o;
+			
+			if ((null == event) || (null == e.event)) {
+				return false;
+			}
+			
+			return super.equals(o) && event.equals(e.event);
 		}
-		
 
 		@Override
 		public String getMessageDescription() {
-			return trans.get("Warning.EVENT_AFTER_LANDING") + event.getType();
+			String msg = trans.get("Warning.EVENT_AFTER_LANDING");
+			if (null != event) {
+				return msg + event.getType();
+			}
+			return msg;
 		}
 
 		@Override
@@ -277,17 +314,13 @@ public abstract class Warning extends Message {
 		public int hashCode() {
 			final int prime = 31;
 			int result = super.hashCode();
-			long temp;
-			temp = Double.doubleToLongBits(delay);
-			result = prime * result + (int) (temp ^ (temp >>> 32));
+			result = prime * result + Double.hashCode(delay);
 			result = prime * result
 					+ ((designation == null) ? 0 : designation.hashCode());
-			temp = Double.doubleToLongBits(diameter);
-			result = prime * result + (int) (temp ^ (temp >>> 32));
+			result = prime * result + Double.hashCode(diameter);
 			result = prime * result
 					+ ((digest == null) ? 0 : digest.hashCode());
-			temp = Double.doubleToLongBits(length);
-			result = prime * result + (int) (temp ^ (temp >>> 32));
+			result = prime * result + Double.hashCode(length);
 			result = prime * result
 					+ ((manufacturer == null) ? 0 : manufacturer.hashCode());
 			result = prime * result + ((type == null) ? 0 : type.hashCode());
@@ -400,32 +433,32 @@ public abstract class Warning extends Message {
 	
 	
 	/** A <code>Warning</code> that the body diameter is discontinuous. */
-	public static final Warning DIAMETER_DISCONTINUITY = new Other(trans.get("Warning.DISCONTINUITY"), MessagePriority.NORMAL);
+	public static final Warning DIAMETER_DISCONTINUITY = new Other(trans.get("Warning.DISCONTINUITY"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that a ComponentAssembly has an open forward end */	
-	public static final Warning OPEN_AIRFRAME_FORWARD = new Other(trans.get("Warning.OPEN_AIRFRAME_FORWARD"), MessagePriority.NORMAL);
+	public static final Warning OPEN_AIRFRAME_FORWARD = new Other(trans.get("Warning.OPEN_AIRFRAME_FORWARD"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that there is a gap in the airframe */
-	public static final Warning AIRFRAME_GAP = new Other(trans.get("Warning.AIRFRAME_GAP"), MessagePriority.NORMAL);
+	public static final Warning AIRFRAME_GAP = new Other(trans.get("Warning.AIRFRAME_GAP"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that there are overlapping airframe components */
-	public static final Warning AIRFRAME_OVERLAP = new Other(trans.get("Warning.AIRFRAME_OVERLAP"), MessagePriority.NORMAL);
+	public static final Warning AIRFRAME_OVERLAP = new Other(trans.get("Warning.AIRFRAME_OVERLAP"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that an inline podset is completely forward of its parent component */
-	public static final Warning PODSET_FORWARD = new Other(trans.get("Warning.PODSET_FORWARD"), MessagePriority.NORMAL);
+	public static final Warning PODSET_FORWARD = new Other(trans.get("Warning.PODSET_FORWARD"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that an inline podset overlaps its parent component */
-	public static final Warning PODSET_OVERLAP = new Other(trans.get("Warning.PODSET_OVERLAP"), MessagePriority.NORMAL);
+	public static final Warning PODSET_OVERLAP = new Other(trans.get("Warning.PODSET_OVERLAP"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that the fins are thick compared to the rocket body. */
 	////Thick fins may not be modeled accurately.
-	public static final Warning THICK_FIN = new Other(trans.get("Warning.THICK_FIN"), MessagePriority.NORMAL);
+	public static final Warning THICK_FIN = new Other(trans.get("Warning.THICK_FIN"), MessagePriority.LOW);
 	
 	/** A <code>Warning</code> that the fins have jagged edges. */
-	public static final Warning JAGGED_EDGED_FIN = new Other(trans.get("Warning.JAGGED_EDGED_FIN"), MessagePriority.NORMAL);
+	public static final Warning JAGGED_EDGED_FIN = new Other(trans.get("Warning.JAGGED_EDGED_FIN"), MessagePriority.LOW);
 	
 	/** A <code>Warning</code> that the fins have a zero area. */
-	public static final Warning ZERO_AREA_FIN = new Other(trans.get("Warning.ZERO_AREA_FIN"), MessagePriority.NORMAL);
+	public static final Warning ZERO_AREA_FIN = new Other(trans.get("Warning.ZERO_AREA_FIN"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that simulation listeners have affected the simulation */
 	public static final Warning LISTENERS_AFFECTED = new Other(trans.get("Warning.LISTENERS_AFFECTED"), MessagePriority.LOW);
@@ -437,7 +470,7 @@ public abstract class Warning extends Message {
 	public static final Warning FILE_INVALID_PARAMETER = new Other(trans.get("Warning.FILE_INVALID_PARAMETER"), MessagePriority.NORMAL);
 
 	/** Too many parallel fins */
-	public static final Warning PARALLEL_FINS = new Other(trans.get("Warning.PARALLEL_FINS"), MessagePriority.NORMAL);
+	public static final Warning PARALLEL_FINS = new Other(trans.get("Warning.PARALLEL_FINS"), MessagePriority.LOW);
 
 	/** Body calculations may not be entirely accurate at supersonic speeds. */
 	public static final Warning SUPERSONIC = new Other(trans.get("Warning.SUPERSONIC"), MessagePriority.NORMAL);
@@ -448,20 +481,20 @@ public abstract class Warning extends Message {
 	/** Stage began to tumble under thrust. */
 	public static final Warning TUMBLE_UNDER_THRUST = new Other(trans.get("Warning.TUMBLE_UNDER_THRUST"), MessagePriority.HIGH);
 
-	/** Flight Event occurred after landing:  */
-	public static final Warning EVENT_AFTER_LANDING = new Other(trans.get("Warning.EVENT_AFTER_LANDING"), MessagePriority.NORMAL);
-
 	/** Zero-volume bodies may not simulate accurately */
-	public static final Warning ZERO_VOLUME_BODY = new Other(trans.get("Warning.ZERO_VOLUME_BODY"), MessagePriority.NORMAL);
+	public static final Warning ZERO_VOLUME_BODY = new Other(trans.get("Warning.ZERO_VOLUME_BODY"), MessagePriority.LOW);
 
+	/** Isolated tube fins may not simulate accurately */
+	public static final Warning TUBE_ISOLATED = new Other(trans.get("Warning.TUBE_ISOLATED"), MessagePriority.LOW);
+	
 	/** Space between tube fins may not simulate accurately. */
-	public static final Warning TUBE_SEPARATION = new Other(trans.get("Warning.TUBE_SEPARATION"), MessagePriority.NORMAL);
+	public static final Warning TUBE_SEPARATION = new Other(trans.get("Warning.TUBE_SEPARATION"), MessagePriority.LOW);
 
 	/** Overlapping tube fins may not simulate accurately. */
-	public static final Warning TUBE_OVERLAP = new Other(trans.get("Warning.TUBE_OVERLAP"), MessagePriority.NORMAL);
+	public static final Warning TUBE_OVERLAP = new Other(trans.get("Warning.TUBE_OVERLAP"), MessagePriority.LOW);
 
 	/** Zero-thickness component can cause issues for 3D printing */
-	public static final Warning OBJ_ZERO_THICKNESS = new Other(trans.get("Warning.OBJ_ZERO_THICKNESS"), MessagePriority.NORMAL);
+	public static final Warning OBJ_ZERO_THICKNESS = new Other(trans.get("Warning.OBJ_ZERO_THICKNESS"), MessagePriority.LOW);
 
 	/** A <code>Warning</code> that stage separation occurred at other than the last stage */
 	public static final Warning SEPARATION_ORDER = new Other(trans.get("Warning.SEPARATION_ORDER"), MessagePriority.NORMAL);

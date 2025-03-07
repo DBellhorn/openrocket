@@ -1,8 +1,8 @@
 package info.openrocket.swing.gui.configdialog;
 
-
-import javax.swing.*;
-
+import info.openrocket.core.rocketcomponent.ComponentChangeEvent;
+import info.openrocket.core.rocketcomponent.ComponentChangeListener;
+import info.openrocket.core.rocketcomponent.MassObject;
 import net.miginfocom.swing.MigLayout;
 
 import info.openrocket.core.document.OpenRocketDocument;
@@ -19,8 +19,12 @@ import info.openrocket.swing.gui.adaptors.DoubleModel;
 import info.openrocket.swing.gui.components.BasicSlider;
 import info.openrocket.swing.gui.components.UnitSelector;
 
-import info.openrocket.swing.gui.widgets.SelectColorButton;
-
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JSpinner;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
@@ -104,10 +108,17 @@ public class ShockCordConfig extends RocketComponentConfig {
 				placementPanel.add(new BasicSlider(od.getSliderModel(0, 0.04, 0.2)), "w 100lp, wrap");
 
 				////// Automatic
-				JCheckBox checkAutoPackedRadius = new JCheckBox(od.getAutomaticAction());
+				final JCheckBox checkAutoPackedRadius = new JCheckBox(od.getAutomaticAction());
 				checkAutoPackedRadius.setText(trans.get("ParachuteCfg.checkbox.AutomaticPacked"));
 				checkAutoPackedRadius.setToolTipText(trans.get("ParachuteCfg.checkbox.AutomaticPacked.ttip"));
+				checkAutoPackedRadius.setEnabled(((MassObject) component).getMaxParentRadius() > 0);
 				placementPanel.add(checkAutoPackedRadius, "skip, spanx 2, wrap");
+				component.getParent().addComponentChangeListener(new ComponentChangeListener() {
+					@Override
+					public void componentChanged(ComponentChangeEvent e) {
+						checkAutoPackedRadius.setEnabled(((MassObject) component).getMaxParentRadius() > 0);
+					}
+				});
 				order.add(checkAutoPackedRadius);
 			}
 		}
@@ -165,7 +176,7 @@ public class ShockCordConfig extends RocketComponentConfig {
 
 
 		//// Reset button
-		JButton button = new SelectColorButton(trans.get("ShockCordCfg.but.Reset"));
+		JButton button = new JButton(trans.get("ShockCordCfg.but.Reset"));
 		button.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {

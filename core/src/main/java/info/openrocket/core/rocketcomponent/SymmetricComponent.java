@@ -9,6 +9,8 @@ import info.openrocket.core.rocketcomponent.position.AxialMethod;
 import info.openrocket.core.util.BoundingBox;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.MathUtil;
+import org.checkerframework.checker.units.qual.C;
+
 import static info.openrocket.core.util.MathUtil.pow2;
 
 /**
@@ -174,7 +176,7 @@ public abstract class SymmetricComponent extends BodyComponent implements BoxBou
 	 */
 	@Override
 	public Collection<Coordinate> getComponentBounds() {
-		List<Coordinate> list = new ArrayList<Coordinate>(20);
+		List<Coordinate> list = new ArrayList<>(20);
 		for (int n = 0; n <= 5; n++) {
 			double x = n * getLength() / 5;
 			double r = getRadius(x);
@@ -190,7 +192,7 @@ public abstract class SymmetricComponent extends BodyComponent implements BoxBou
 			this.filled = false;
 		}
 		if (preset.has(ComponentPreset.FILLED)) {
-			this.filled = true;
+			this.filled = preset.get(ComponentPreset.FILLED);
 		}
 
 		super.loadFromPreset(preset);
@@ -440,6 +442,7 @@ public abstract class SymmetricComponent extends BodyComponent implements BoxBou
 		volume = 0;
 		longitudinalUnitInertia = 0;
 		rotationalUnitInertia = 0;
+		cg = new Coordinate();
 
 		double cgx = 0;
 

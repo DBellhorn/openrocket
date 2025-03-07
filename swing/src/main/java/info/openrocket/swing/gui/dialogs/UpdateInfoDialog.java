@@ -40,7 +40,6 @@ import info.openrocket.swing.gui.util.Icons;
 import info.openrocket.swing.gui.util.SwingPreferences;
 import info.openrocket.swing.gui.theme.UITheme;
 import info.openrocket.swing.gui.util.URLUtil;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,6 +54,7 @@ public class UpdateInfoDialog extends JDialog {
 	private final SwingPreferences preferences = (SwingPreferences) Application.getPreferences();
 
 	private static Color textColor;
+	private static Color warningTextColor;
 
 	static {
 		initColors();
@@ -73,8 +73,15 @@ public class UpdateInfoDialog extends JDialog {
 		//	OpenRocket version available!
 		panel.add(new StyledLabel(trans.get("update.dlg.updateAvailable.lbl.title"), 8, StyledLabel.Style.BOLD), "spanx, wrap");
 
-		// Your version
+		//	Pre-release warning
 		ReleaseInfo release = info.getLatestRelease();
+		if (!release.isOfficialRelease()) {
+			StyledLabel label = new StyledLabel(trans.get("update.dlg.lbl.preReleaseWarning"), 5, StyledLabel.Style.BOLD);
+			label.setFontColor(warningTextColor);
+			panel.add(label, "spanx, wrap");
+		}
+
+		// Your version
 		panel.add(new StyledLabel(String.format(trans.get("update.dlg.updateAvailable.lbl.yourVersion"),
 				release.getReleaseName(), BuildProperties.getVersion()), -1, StyledLabel.Style.PLAIN), "skip 1, spanx, wrap para");
 
@@ -83,10 +90,12 @@ public class UpdateInfoDialog extends JDialog {
 
 		// Release information box
 		final JTextPane textPane = new JTextPane();
-		textPane.setBorder(BorderFactory.createLineBorder(textColor));
+		textPane.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createLineBorder(textColor),
+				BorderFactory.createEmptyBorder(0, 10, 10, 10)
+		));
 		textPane.setEditable(false);
 		textPane.setContentType("text/html");
-		textPane.setMargin(new Insets(10, 10, 40, 10));
 		textPane.putClientProperty(JTextPane.HONOR_DISPLAY_PROPERTIES, true);
 
 		StringBuilder sb = new StringBuilder();
@@ -129,11 +138,23 @@ public class UpdateInfoDialog extends JDialog {
 				preferences.setCheckUpdates(checkAtStartup.isSelected());
 			}
 		});
-		panel.add(checkAtStartup, "skip 1, spanx, wrap");
+		panel.add(checkAtStartup, "skip 1, split 2, spanx");
+
+		//// Check for beta releases
+		final JCheckBox betaUpdateBox = new JCheckBox(trans.get("pref.dlg.checkbox.CheckBetaupdates"));
+		betaUpdateBox.setToolTipText(trans.get("pref.dlg.checkbox.CheckBetaupdates.ttip"));
+		betaUpdateBox.setSelected(preferences.getCheckBetaUpdates());
+		betaUpdateBox.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				preferences.setCheckBetaUpdates(betaUpdateBox.isSelected());
+			}
+		});
+		panel.add(betaUpdateBox, "gapleft para, wrap");
 
 		// Lower row buttons
 		//// Remind me later button
-		JButton btnLater = new SelectColorButton(trans.get("update.dlg.btn.remindMeLater"));
+		JButton btnLater = new JButton(trans.get("update.dlg.btn.remindMeLater"));
 		btnLater.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -143,7 +164,7 @@ public class UpdateInfoDialog extends JDialog {
 		panel.add(btnLater, "skip 1, split 2");
 
 		//// Skip this version button
-		JButton btnSkip = new SelectColorButton(trans.get("update.dlg.checkbox.skipThisVersion"));
+		JButton btnSkip = new JButton(trans.get("update.dlg.checkbox.skipThisVersion"));
 		btnSkip.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -161,8 +182,8 @@ public class UpdateInfoDialog extends JDialog {
 		//// Install operating system combo box
 		List<String> assetURLs = release.getAssetURLs();
 		Map<UpdatePlatform, String> mappedAssets = AssetHandler.mapURLToPlatform(assetURLs);
-		JComboBox<Object> comboBox;
-		if (mappedAssets == null || mappedAssets.size() == 0) {
+		JComboBox<Object> comboBox = null;
+		/*if (mappedAssets == null || mappedAssets.size() == 0) {
 			comboBox = new JComboBox<>(new String[]{
 					String.format("- %s -", trans.get("update.dlg.updateAvailable.combo.noDownloads"))});
 		}
@@ -178,16 +199,16 @@ public class UpdateInfoDialog extends JDialog {
 				}
 			});
 		}
-		panel.add(comboBox, "pushx, right");
+		panel.add(comboBox, "pushx, right");*/
 
 		//// Install update button
-		JButton btnInstall = new SelectColorButton(trans.get("update.dlg.updateAvailable.but.install"));
+		JButton btnInstall = new JButton(trans.get("update.dlg.updateAvailable.but.install"));
 		btnInstall.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				if (mappedAssets == null) return;
-				String url = AssetHandler.getInstallerURLForPlatform((UpdatePlatform) comboBox.getSelectedItem(),
-						release.getReleaseName());
+				UpdatePlatform platform = comboBox != null ? (UpdatePlatform) comboBox.getSelectedItem() : null;
+				String url = AssetHandler.getInstallerURLForPlatform(platform, release.getReleaseName());
 				if (url == null) return;
 				try {
 					URLUtil.openWebpage(url);
@@ -215,8 +236,9 @@ public class UpdateInfoDialog extends JDialog {
 		UITheme.Theme.addUIThemeChangeListener(UpdateInfoDialog::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		textColor = GUIUtil.getUITheme().getTextColor();
+		warningTextColor = GUIUtil.getUITheme().getWarningColor();
 	}
 
 	/**

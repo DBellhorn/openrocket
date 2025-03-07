@@ -36,9 +36,12 @@ import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
 import info.openrocket.core.rocketcomponent.TubeCoupler;
 import info.openrocket.core.rocketcomponent.TubeFinSet;
 import info.openrocket.core.startup.Application;
+import info.openrocket.swing.gui.util.Icons;
+import info.openrocket.swing.gui.util.SwingPreferences;
 
 public class ComponentIcons {
 	private static final Translator trans = Application.getTranslator();
+	private static final SwingPreferences prefs = (SwingPreferences) Application.getPreferences();
 
 	private static final String ICON_DIRECTORY = "pix/componenticons/";
 	private static final String SMALL_SUFFIX = "-small.png";
@@ -75,10 +78,10 @@ public class ComponentIcons {
 	private static String mass_recovery_hardware;
 	private static String mass_tracker;
 
-	private static final HashMap<Class<?>, ImageIcon> SMALL_ICONS = new HashMap<Class<?>, ImageIcon>();
-	private static final HashMap<Class<?>, ImageIcon> LARGE_ICONS = new HashMap<Class<?>, ImageIcon>();
-	private static final HashMap<Class<?>, ImageIcon> DISABLED_ICONS = new HashMap<Class<?>, ImageIcon>();
-	private static final HashMap<MassComponentType, ImageIcon> MASS_COMPONENT_SMALL_ICONS = new HashMap<MassComponentType, ImageIcon>();
+	private static final HashMap<Class<?>, ImageIcon> SMALL_ICONS = new HashMap<>();
+	private static final HashMap<Class<?>, ImageIcon> LARGE_ICONS = new HashMap<>();
+	private static final HashMap<Class<?>, ImageIcon> DISABLED_ICONS = new HashMap<>();
+	private static final HashMap<MassComponentType, ImageIcon> MASS_COMPONENT_SMALL_ICONS = new HashMap<>();
 	static {
 		initColors();
 
@@ -147,7 +150,7 @@ public class ComponentIcons {
 		UITheme.Theme.addUIThemeChangeListener(ComponentIcons::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		noseCone = GUIUtil.getUITheme().getComponentIconNoseCone();
 		bodyTube = GUIUtil.getUITheme().getComponentIconBodyTube();
 		transition = GUIUtil.getUITheme().getComponentIconTransition();
@@ -243,7 +246,8 @@ public class ComponentIcons {
 					"ERROR:  Couldn't find file: " + file);
 			return null;
 		}
-		return new ImageIcon(url, desc);
+		ImageIcon icon = new ImageIcon(url, desc);
+		return (ImageIcon) Icons.getScaledIcon(icon, prefs.getUIScale());
 	}
 
 	private static ImageIcon[] loadLarge(String file, String desc) {
@@ -303,7 +307,12 @@ public class ComponentIcons {
 			icons[1] = new ImageIcon(bi2, desc + " "
 					+ trans.get("ComponentIcons.disabled"));
 
-			return icons;
+			ImageIcon[] scaledIcons = new ImageIcon[2];
+			for (int i = 0; i < 2; i++) {
+				scaledIcons[i] = (ImageIcon) Icons.getScaledIcon(icons[i], prefs.getUIScale());
+			}
+
+			return scaledIcons;
 		} else {
 			Application.getExceptionHandler().handleErrorCondition(
 					"ERROR:  Couldn't find file: " + file);

@@ -1,17 +1,31 @@
 package info.openrocket.core.logging;
 
-import info.openrocket.core.rocketcomponent.RocketComponent;
+import java.lang.UnsupportedOperationException;
 import java.util.Arrays;
+import java.util.UUID;
+
+import info.openrocket.core.rocketcomponent.RocketComponent;
 
 /**
  * Baseclass for logging messages (warnings, errors...)
  */
 public abstract class Message implements Cloneable {
+	/** Message ID **/
+	UUID id;
+	
 	/** The rocket component(s) that are the source of this message **/
 	private RocketComponent[] sources = null;
 
 	private MessagePriority priority = MessagePriority.NORMAL;
 
+	protected Message() {
+		this.id = UUID.randomUUID();
+	}
+
+	protected Message(UUID id) {
+		this.id = id;
+	}
+	
 	/**
 	 * Returns the message text + message source objects.
 	 * @return the message text + message source objects.
@@ -31,9 +45,9 @@ public abstract class Message implements Cloneable {
 		if (sources != null && sources.length > 0) {
 			String[] sourceNames = new String[sources.length];
 			for (int i = 0; i < sources.length; i++) {
-				sourceNames[i] = sources[i].getName();
+				sourceNames[i] = "\"" + sources[i].getName() + "\"";
 			}
-			return text + ": \"" + String.join(", ", sourceNames) + "\"";
+			return text + ":  " + String.join(", ", sourceNames);
 		}
 		return text;
 	}
@@ -54,6 +68,30 @@ public abstract class Message implements Cloneable {
 	 */
 	public abstract boolean replaceBy(Message other);
 
+	/**
+	 * Replace the contents of this Message with another
+	 *
+	 * This must be overridden by any subclass making use of it; this is the case for
+	 * subclasses for which replaceBy() can return true
+	 **/
+	public void replaceContents(Message m) throws UnsupportedOperationException {
+		throw new UnsupportedOperationException("class doesn't implement replaceContents");
+	}
+
+	/**
+	 * Return the ID
+	 */
+	 public UUID getID() {
+		 return id;
+	 }
+
+	/**
+	 * Set the ID
+	 **/
+	public void setID(UUID id) {
+		this.id = id;
+	}
+	
 	/**
 	 * Return the rocket component(s) that are the source of this warning.
 	 * @return the rocket component(s) that are the source of this warning. Returns null if no sources are specified.
@@ -85,7 +123,7 @@ public abstract class Message implements Cloneable {
 	public void setPriority(MessagePriority priority) {
 		this.priority = priority;
 	}
-
+	
 	/**
 	 * Two <code>Message</code>s are by default considered equal if they are of
 	 * the same class.  Therefore only one instance of a particular message type

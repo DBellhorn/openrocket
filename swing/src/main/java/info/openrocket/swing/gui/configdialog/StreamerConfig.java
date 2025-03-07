@@ -15,6 +15,12 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 
+import info.openrocket.core.material.MaterialGroup;
+import info.openrocket.core.rocketcomponent.ComponentChangeEvent;
+import info.openrocket.core.rocketcomponent.ComponentChangeListener;
+import info.openrocket.core.rocketcomponent.MassObject;
+import info.openrocket.swing.gui.widgets.GroupableAndSearchableComboBox;
+import info.openrocket.swing.gui.widgets.MaterialComboBox;
 import net.miginfocom.swing.MigLayout;
 
 import info.openrocket.core.document.OpenRocketDocument;
@@ -36,7 +42,6 @@ import info.openrocket.swing.gui.components.BasicSlider;
 import info.openrocket.swing.gui.components.HtmlLabel;
 import info.openrocket.swing.gui.components.StyledLabel;
 import info.openrocket.swing.gui.components.UnitSelector;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
 
 
 public class StreamerConfig extends RecoveryDeviceConfig {
@@ -109,9 +114,9 @@ public class StreamerConfig extends RecoveryDeviceConfig {
 		//// Material:
 		panel.add(new JLabel(trans.get("StreamerCfg.lbl.Material")));
 
-		MaterialModel mm = new MaterialModel(panel, component, Material.Type.SURFACE);
+		MaterialModel mm = new MaterialModel(panel, document, component, Material.Type.SURFACE);
 		register(mm);
-		JComboBox<Material> streamerMaterialCombo = new JComboBox<>(mm);
+		GroupableAndSearchableComboBox<MaterialGroup, Material> streamerMaterialCombo = MaterialComboBox.createComboBox(document, mm);
 		//// The component material affects the weight of the component.
 		streamerMaterialCombo.setToolTipText(trans.get("StreamerCfg.combo.ttip.MaterialModel"));
 		panel.add(streamerMaterialCombo, "spanx 3, growx, wrap 15lp");
@@ -185,10 +190,17 @@ public class StreamerConfig extends RecoveryDeviceConfig {
 			placementPanel.add(new BasicSlider(od.getSliderModel(0, 0.04, 0.2)), "w 100lp, wrap");
 
 			////// Automatic
-			JCheckBox checkAutoPackedRadius = new JCheckBox(od.getAutomaticAction());
+			final JCheckBox checkAutoPackedRadius = new JCheckBox(od.getAutomaticAction());
 			checkAutoPackedRadius.setText(trans.get("ParachuteCfg.checkbox.AutomaticPacked"));
 			checkAutoPackedRadius.setToolTipText(trans.get("ParachuteCfg.checkbox.AutomaticPacked.ttip"));
+			checkAutoPackedRadius.setEnabled(((MassObject) component).getMaxParentRadius() > 0);
 			placementPanel.add(checkAutoPackedRadius, "skip, spanx 2");
+			component.getParent().addComponentChangeListener(new ComponentChangeListener() {
+				@Override
+				public void componentChanged(ComponentChangeEvent e) {
+					checkAutoPackedRadius.setEnabled(((MassObject) component).getMaxParentRadius() > 0);
+				}
+			});
 			order.add(checkAutoPackedRadius);
 
 			panel.add(placementPanel, "growx, wrap");
@@ -313,7 +325,7 @@ public class StreamerConfig extends RecoveryDeviceConfig {
 		
 		
 		//// Reset button
-		JButton button = new SelectColorButton(trans.get("StreamerCfg.but.Reset"));
+		JButton button = new JButton(trans.get("StreamerCfg.but.Reset"));
 		button.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {

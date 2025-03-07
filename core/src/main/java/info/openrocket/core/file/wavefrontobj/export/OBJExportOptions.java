@@ -6,12 +6,16 @@ import info.openrocket.core.file.wavefrontobj.ObjUtils;
 import info.openrocket.core.rocketcomponent.Rocket;
 
 public class OBJExportOptions {
-    // ! Update Preferences when adding new options !
+    // ! Update ApplicationPreferences when adding new options !
 
     /**
      * If true, export all children of the components as well
      */
     private boolean exportChildren;
+    /**
+     * If false, export only a single instance of each component.
+     */
+    private boolean exportAllInstances;
     /**
      * If true, export the motors of the components as well.
      */
@@ -72,6 +76,14 @@ public class OBJExportOptions {
 
     public void setExportChildren(boolean exportChildren) {
         this.exportChildren = exportChildren;
+    }
+
+    public boolean isExportAllInstances() {
+        return exportAllInstances;
+    }
+
+    public void setExportAllInstances(boolean exportAllInstances) {
+        this.exportAllInstances = exportAllInstances;
     }
 
     public boolean isExportMotors() {

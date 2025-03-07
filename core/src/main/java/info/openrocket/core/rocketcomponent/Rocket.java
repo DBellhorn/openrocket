@@ -1,8 +1,17 @@
 package info.openrocket.core.rocketcomponent;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.EventListener;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import info.openrocket.core.document.OpenRocketDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,7 +22,7 @@ import info.openrocket.core.util.BoundingBox;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.StateChangeListener;
-import info.openrocket.core.util.UniqueID;
+import info.openrocket.core.util.ModID;
 
 /**
  * Base for all rocket components.  This is the "starting point" for all rocket trees.
@@ -43,20 +52,26 @@ public class Rocket extends ComponentAssembly {
 	private List<ComponentChangeEvent> freezeList = null;
 	
 	
-	private int modID;
-	private int massModID;
-	private int aeroModID;
-	private int treeModID;
-	private int functionalModID;
+	private ModID modID;
+	private ModID massModID;
+	private ModID aeroModID;
+	private ModID treeModID;
+	private ModID functionalModID;
 
 	private boolean eventsEnabled = false;
 
+	private OpenRocketDocument document;
 	private ReferenceType refType = ReferenceType.MAXIMUM; // Set in constructor
 	private double customReferenceLength = DEFAULT_REFERENCE_LENGTH;
 	
 	
 	private String designer = "";
 	private String revision = "";
+	private DesignType designType = DesignType.ORIGINAL;
+	private String kitName = "";
+//	private boolean optimizationFlight = false;
+//	private boolean optimizationAppearance = false;
+//	private boolean optimizationConstruction = false;
 	
 	
 	// Flight configuration list
@@ -72,7 +87,7 @@ public class Rocket extends ComponentAssembly {
 	
 	public Rocket() {
 		super(AxialMethod.ABSOLUTE);
-		modID = UniqueID.next();
+		modID = new ModID();
 		massModID = modID;
 		aeroModID = modID;
 		treeModID = modID;
@@ -106,7 +121,78 @@ public class Rocket extends ComponentAssembly {
 		designer = s;
 		fireComponentChangeEvent(ComponentChangeEvent.NONFUNCTIONAL_CHANGE);
 	}
-	
+
+	/**
+	 * Get the design type of the rocket (e.g. is the current model a clone of a kit, an upscale of a kit, an original
+	 * design...).
+	 * @return the design type
+	 */
+	public DesignType getDesignType() {
+		checkState();
+		return designType;
+	}
+
+	/**
+	 * Set the design type of the rocket.
+	 * @param type the design type
+	 */
+	public void setDesignType(DesignType type) {
+		if (type == null) {
+			type = DesignType.ORIGINAL;
+		}
+		designType = type;
+		fireComponentChangeEvent(ComponentChangeEvent.NONFUNCTIONAL_CHANGE);
+	}
+
+	/**
+	 * Get the name of the kit that this rocket is based on.
+	 * @return the kit name
+	 */
+	public String getKitName() {
+		checkState();
+		return kitName;
+	}
+
+	/**
+	 * Set the name of the kit that this rocket is based on.
+	 * @param s the kit name
+	 */
+	public void setKitName(String s) {
+		if (s == null)
+			s = "";
+		kitName = s;
+		fireComponentChangeEvent(ComponentChangeEvent.NONFUNCTIONAL_CHANGE);
+	}
+
+//	public Boolean isOptimizationFlight(){
+//		checkState();
+//		return optimizationFlight;
+//	}
+//
+//	public void setOptimizationFlight(boolean b){
+//		optimizationFlight = b;
+//		fireComponentChangeEvent(ComponentChangeEvent.NONFUNCTIONAL_CHANGE);
+//	}
+//
+//	public Boolean isOptimizationAppearance(){
+//		checkState();
+//		return optimizationAppearance;
+//	}
+//
+//	public void setOptimizationAppearance(boolean b){
+//		optimizationAppearance = b;
+//		fireComponentChangeEvent(ComponentChangeEvent.NONFUNCTIONAL_CHANGE);
+//	}
+//
+//	public Boolean isOptimizationConstruction(){
+//		checkState();
+//		return optimizationConstruction;
+//	}
+//
+//	public void setOptimizationConstruction(boolean b){
+//		optimizationConstruction = b;
+//		fireComponentChangeEvent(ComponentChangeEvent.NONFUNCTIONAL_CHANGE);
+//	}
 	
 	public String getRevision() {
 		checkState();
@@ -148,37 +234,37 @@ public class Rocket extends ComponentAssembly {
 	 *
 	 * @return   a unique ID number for this modification state.
 	 */
-	public int getModID() {
+	public ModID getModID() {
 		return modID;
 	}
 	
 	/**
-	 * Return the non-negative mass modification ID of this rocket.  See
+	 * Return the mass modification ID of this rocket.  See
 	 * {@link #getModID()} for details.
 	 *
 	 * @return   a unique ID number for this mass-modification state.
 	 */
-	public int getMassModID() {
+	public ModID getMassModID() {
 		return massModID;
 	}
 	
 	/**
-	 * Return the non-negative aerodynamic modification ID of this rocket.  See
+	 * Return the aerodynamic modification ID of this rocket.  See
 	 * {@link #getModID()} for details.
 	 *
 	 * @return   a unique ID number for this aerodynamic-modification state.
 	 */
-	public int getAerodynamicModID() {
+	public ModID getAerodynamicModID() {
 		return aeroModID;
 	}
 	
 	/**
-	 * Return the non-negative tree modification ID of this rocket.  See
+	 * Return the tree modification ID of this rocket.  See
 	 * {@link #getModID()} for details.
 	 *
 	 * @return   a unique ID number for this tree-modification state.
 	 */
-	public int getTreeModID() {
+	public ModID getTreeModID() {
 		return treeModID;
 	}
 	
@@ -188,10 +274,26 @@ public class Rocket extends ComponentAssembly {
 	 *
 	 * @return	a unique ID number for this functional modification state.
 	 */
-	public int getFunctionalModID() {
+	public ModID getFunctionalModID() {
 		return functionalModID;
 	}
-	
+
+	/**
+	 * Return the OpenRocketDocument that this rocket is part of, or null if it is not part of any document.
+	 * @return the document, or null
+	 */
+	public OpenRocketDocument getDocument() {
+		return document;
+	}
+
+	/**
+	 * Set the OpenRocketDocument that this rocket is part of.
+	 * @param document the document
+	 */
+	public void setDocument(OpenRocketDocument document) {
+		this.document = document;
+	}
+
 	public Collection<AxialStage> getStageList() {
 		return this.stageMap.values();
 	}
@@ -200,7 +302,7 @@ public class Rocket extends ComponentAssembly {
 		return this.stageMap.get(stageNumber);
 	}
 
-	public AxialStage getStage(final String stageId) {
+	public AxialStage getStage(final UUID stageId) {
 		for (AxialStage stage : getStageList()) {
 			if (stage.getID().equals(stageId)) {
 				return stage;
@@ -286,7 +388,7 @@ public class Rocket extends ComponentAssembly {
 
 	@Override
 	public void setAxialOffset(final double requestOffset) {
-		this.axialOffset = 0.;
+		this.axialOffset = 0.0;
 		this.position = Coordinate.ZERO;
     }
 
@@ -377,7 +479,7 @@ public class Rocket extends ComponentAssembly {
 
 		// Rocket copy is cloned, so non-trivial members must be cloned as well:
 		copyRocket.stageMap = new ConcurrentHashMap<>();
-		for( Map.Entry<Integer,AxialStage> entry : this.stageMap.entrySet()){
+		for (Map.Entry<Integer,AxialStage> entry : this.stageMap.entrySet()){
 			final AxialStage stage = (AxialStage)copyRocket.findComponent(entry.getValue().getID());
 			if (stage == null) {
 				throw new IllegalStateException("Stage not found in copy");
@@ -478,7 +580,7 @@ public class Rocket extends ComponentAssembly {
 	 */
 	public void resetListeners() {
 		//		System.out.println("RESETTING LISTENER LIST of Rocket "+this);
-		listenerList = new HashSet<EventListener>();
+		listenerList = new HashSet<>();
 	}
 	
 	
@@ -547,7 +649,7 @@ public class Rocket extends ComponentAssembly {
 
 			// Update modification ID's only for normal (not undo/redo) events
 			if (!cce.isUndoChange()) {
-				modID = UniqueID.next();
+				modID = new ModID();
 				if (cce.isMassChange())
 					massModID = modID;
 				if (cce.isAerodynamicChange())
@@ -671,7 +773,8 @@ public class Rocket extends ComponentAssembly {
 
 			if (l instanceof ComponentChangeListener) {
 				((ComponentChangeListener) l).componentChanged(cce);
-			} else if (l instanceof StateChangeListener) {
+			}
+			if (l instanceof StateChangeListener) {
 				((StateChangeListener) l).stateChanged(cce);
 			}
 		}

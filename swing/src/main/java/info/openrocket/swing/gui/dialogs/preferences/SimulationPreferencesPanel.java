@@ -23,7 +23,6 @@ import info.openrocket.swing.gui.theme.UITheme;
 import info.openrocket.core.simulation.RK4SimulationStepper;
 import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.util.GeodeticComputationStrategy;
-import info.openrocket.swing.gui.widgets.SelectColorButton;
 
 public class SimulationPreferencesPanel extends PreferencesPanel {
 	private static final long serialVersionUID = 7983195730016979888L;
@@ -40,6 +39,7 @@ public class SimulationPreferencesPanel extends PreferencesPanel {
 	 */
 
 
+	// TODO: A lot of duplicated code with SimulationOptionsPanel
 	public SimulationPreferencesPanel() {
 		super(new MigLayout("fillx"));
 
@@ -124,9 +124,9 @@ public class SimulationPreferencesPanel extends PreferencesPanel {
 		label.setToolTipText(trans.get("simedtdlg.lbl.ttip.GeodeticMethodTip"));
 		subsub.add(label, "gapright para");
 
-		EnumModel<GeodeticComputationStrategy> gcsModel = new EnumModel<GeodeticComputationStrategy>(
+		EnumModel<GeodeticComputationStrategy> gcsModel = new EnumModel<>(
 				preferences, "GeodeticComputation");
-		final JComboBox<GeodeticComputationStrategy> gcsCombo = new JComboBox<GeodeticComputationStrategy>(gcsModel);
+		final JComboBox<GeodeticComputationStrategy> gcsCombo = new JComboBox<>(gcsModel);
 		ActionListener gcsTTipListener = new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -165,12 +165,30 @@ public class SimulationPreferencesPanel extends PreferencesPanel {
 		subsub.add(unit, "");
 		slider = new BasicSlider(m_ts.getSliderModel(0.01, 0.2));
 		slider.setToolTipText(tip);
-		subsub.add(slider, "w 100");
+		subsub.add(slider, "w 100, wrap");
+
+		// // Maximum simulation time:
+		label = new JLabel(trans.get("simedtdlg.lbl.MaxSimTime"));
+		tip = trans.get("simedtdlg.lbl.ttip.MaxSimTime");
+		label.setToolTipText(tip);
+		subsub.add(label, "gapright para");
+
+		DoubleModel m_max = new DoubleModel(preferences, "MaxSimulationTime",
+				UnitGroup.UNITS_LONG_TIME, 1);
+
+		spin = new JSpinner(m_max.getSpinnerModel());
+		spin.setEditor(new SpinnerEditor(spin));
+		spin.setToolTipText(tip);
+		subsub.add(spin, "");
+
+		unit = new UnitSelector(m_max);
+		unit.setToolTipText(tip);
+		subsub.add(unit, "wrap");
 
 		sub.add(subsub, "spanx, wrap para");
 
 		// Reset to default button
-		JButton button = new SelectColorButton(trans.get("simedtdlg.but.resettodefault"));
+		JButton button = new JButton(trans.get("simedtdlg.but.resettodefault"));
 		// Reset the time step to its default value (
 		button.setToolTipText(trans.get("simedtdlg.but.ttip.resettodefault")
 				+ UnitGroup.UNITS_SHORT_TIME
@@ -180,6 +198,7 @@ public class SimulationPreferencesPanel extends PreferencesPanel {
 			@Override
 			public void actionPerformed(ActionEvent e) {
 				m_ts.setValue(RK4SimulationStepper.RECOMMENDED_TIME_STEP);
+				m_max.setValue(RK4SimulationStepper.RECOMMENDED_MAX_TIME);
 				gcsModel.setSelectedItem(GeodeticComputationStrategy.SPHERICAL);
 				gcsCombo.repaint();
 			}
@@ -308,7 +327,7 @@ public class SimulationPreferencesPanel extends PreferencesPanel {
 		UITheme.Theme.addUIThemeChangeListener(SimulationPreferencesPanel::updateColors);
 	}
 
-	private static void updateColors() {
+	public static void updateColors() {
 		darkErrorColor = GUIUtil.getUITheme().getDarkErrorColor();
 	}
 }
