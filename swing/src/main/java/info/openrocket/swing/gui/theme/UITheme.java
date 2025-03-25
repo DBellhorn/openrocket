@@ -89,6 +89,8 @@ public class UITheme {
         Color getDarkErrorColor();
         Color getRowBackgroundLighterColor();
         Color getRowBackgroundDarkerColor();
+        Color getTableRowFlashColor();
+        Color getTableRowSelectionColor();
         Color getFlightDataTextActiveColor();
         Color getFlightDataTextInactiveColor();
         Color getMultiCompEditColor();
@@ -313,6 +315,16 @@ public class UITheme {
             @Override
             public Color getRowBackgroundDarkerColor() {
                 return new Color(245, 245, 245);
+            }
+
+            @Override
+            public Color getTableRowFlashColor() {
+                return new Color(255, 255, 204);
+            }
+
+            @Override
+            public Color getTableRowSelectionColor() {
+                return new Color(217, 233, 255);
             }
 
             @Override
@@ -722,6 +734,16 @@ public class UITheme {
             }
 
             @Override
+            public Color getTableRowFlashColor() {
+                return new Color(255, 255, 102, 69);
+            }
+
+            @Override
+            public Color getTableRowSelectionColor() {
+                return new Color(73, 87, 133);
+            }
+
+            @Override
             public Color getFlightDataTextActiveColor() {
                 return new Color(145, 183, 231);
             }
@@ -1125,6 +1147,16 @@ public class UITheme {
             @Override
             public Color getRowBackgroundDarkerColor() {
                 return new Color(34, 37, 44);
+            }
+
+            @Override
+            public Color getTableRowFlashColor() {
+                return new Color(255, 255, 128, 60);
+            }
+
+            @Override
+            public Color getTableRowSelectionColor() {
+                return new Color(51, 66, 102);
             }
 
             @Override
@@ -1544,6 +1576,16 @@ public class UITheme {
             }
 
             @Override
+            public Color getTableRowFlashColor() {
+                return getCurrentTheme().getTableRowFlashColor();
+            }
+
+            @Override
+            public Color getTableRowSelectionColor() {
+                return getCurrentTheme().getTableRowSelectionColor();
+            }
+
+            @Override
             public Color getFlightDataTextActiveColor() {
                 return getCurrentTheme().getFlightDataTextActiveColor();
             }
@@ -1861,6 +1903,7 @@ public class UITheme {
 		public Color getStatusColor(Status status) {
 			switch (status) {
 			case ABORTED:
+            case CANT_RUN:
 				return getErrorColor();
 				
 			case OUTDATED:
@@ -1873,9 +1916,7 @@ public class UITheme {
     }
 
     private static void preApplyTheme() {
-        final SwingPreferences prefs = (SwingPreferences) Application.getPreferences();
         FlatAnimatedLafChange.showSnapshot();
-
         FlatLaf.registerCustomDefaultsSource("themes");
     }
 
