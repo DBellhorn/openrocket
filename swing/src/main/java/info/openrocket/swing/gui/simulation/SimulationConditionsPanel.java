@@ -17,7 +17,6 @@ import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
-import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
@@ -51,7 +50,7 @@ public class SimulationConditionsPanel extends JPanel {
 
 
 	SimulationConditionsPanel(final Simulation simulation) {
-		super(new MigLayout("fill"));
+		super(new MigLayout("fill, ins n n 0 n"));
 
 		SimulationOptions simulationOptions = simulation.getOptions();
 
@@ -325,7 +324,9 @@ public class SimulationConditionsPanel extends JPanel {
 				UnitGroup.UNITS_ANGLE.toStringUnit(0) +
 				" " + trans.get("simedtdlg.lbl.ttip.Direction2") + " " +
 				UnitGroup.UNITS_ANGLE.toStringUnit(2*Math.PI) +
-				" " + trans.get("simedtdlg.lbl.ttip.Direction3");
+				". " + trans.get("simedtdlg.lbl.ttip.Direction3") + " " +
+				UnitGroup.UNITS_ANGLE.toStringUnit(Math.PI / 2) + " " +
+				trans.get("simedtdlg.lbl.ttip.Direction4");
 		directionLabel.setToolTipText(tip);
 		sub.add(directionLabel);
 
@@ -421,11 +422,11 @@ public class SimulationConditionsPanel extends JPanel {
 
 		// Wind average
 		final DoubleModel windSpeedAverage = addDoubleModel(panel, "Averwindspeed", trans.get("simedtdlg.lbl.ttip.Averwindspeed"), model, "Average",
-				UnitGroup.UNITS_WINDSPEED, 0, 10.0);
+															UnitGroup.UNITS_WINDSPEED, 0, 10.0, Double.MAX_VALUE);
 
 		// Wind standard deviation
 		final DoubleModel windSpeedDeviation = addDoubleModel(panel, "Stddeviation", trans.get("simedtdlg.lbl.ttip.Stddeviation"),
-				model, "StandardDeviation", UnitGroup.UNITS_WINDSPEED, 0, windSpeedAverage);
+															  model, "StandardDeviation", UnitGroup.UNITS_WINDSPEED, 0, windSpeedAverage, windSpeedAverage);
 
 		windSpeedAverage.addChangeListener(new ChangeListener() {
 			@Override
@@ -441,7 +442,7 @@ public class SimulationConditionsPanel extends JPanel {
 				" " + trans.get("simedtdlg.lbl.ttip.Turbulenceintensity3") + " " +
 				UnitGroup.UNITS_RELATIVE.getDefaultUnit().toStringUnit(0.20) + ".";
 		final DoubleModel windTurbulenceIntensity = addDoubleModel(panel, "Turbulenceintensity", tip, model,
-				"TurbulenceIntensity", UnitGroup.UNITS_RELATIVE, 0, 1.0, true);
+																   "TurbulenceIntensity", UnitGroup.UNITS_RELATIVE, 0, 1.0, 1.0, true);
 
 		final JLabel intensityLabel = new JLabel(target.getAverageWindModel().getIntensityDescription());
 		intensityLabel.setToolTipText(tip);
@@ -462,7 +463,7 @@ public class SimulationConditionsPanel extends JPanel {
 
 		// Wind direction
 		addDoubleModel(panel, "Winddirection", trans.get("simedtdlg.lbl.ttip.Winddirection"), model, "Direction",
-				UnitGroup.UNITS_ANGLE, 0, 2 * Math.PI);
+					   UnitGroup.UNITS_ANGLE, 0, 2 * Math.PI, 2 * Math.PI);
 	}
 
 	private static void addMultiLevelSettings(JPanel panel, SimulationOptionsInterface target) {
@@ -545,7 +546,7 @@ public class SimulationConditionsPanel extends JPanel {
 	}
 
 	private static DoubleModel addDoubleModel(JPanel panel, String labelKey, String tooltipText, Object source, String sourceKey,
-									   UnitGroup unit, double min, Object max, boolean easterEgg) {
+											  UnitGroup unit, double min, Object maxSlider, Object max, boolean easterEgg) {
 		JLabel label = new JLabel(trans.get("simedtdlg.lbl." + labelKey));
 		panel.add(label);
 
@@ -555,7 +556,7 @@ public class SimulationConditionsPanel extends JPanel {
 		} else if (max instanceof DoubleModel) {
 			model = new DoubleModel(source, sourceKey, unit, min, (DoubleModel) max);
 		} else {
-			throw new IllegalArgumentException("Invalid max value");
+			throw new IllegalArgumentException("max value must be Double or DoubleModel");
 		}
 
 		JSpinner spin = new JSpinner(model.getSpinnerModel());
@@ -572,15 +573,22 @@ public class SimulationConditionsPanel extends JPanel {
 		UnitSelector unitSelector = new UnitSelector(model);
 		panel.add(unitSelector, "growx");
 
-		BasicSlider slider = new BasicSlider(model.getSliderModel());
+		BasicSlider slider;
+		if (maxSlider instanceof Double) {
+			slider = new BasicSlider(model.getSliderModel(0, (Double) maxSlider));
+		} else if (maxSlider instanceof DoubleModel) {
+			slider = new BasicSlider(model.getSliderModel(0, (DoubleModel) maxSlider));
+		} else {
+			throw new IllegalArgumentException("maxSlider value must be Double or DoubleModel");
+		}
 		panel.add(slider, "w 75lp, wrap");
 
 		return model;
 	}
 
 	private static DoubleModel addDoubleModel(JPanel panel, String labelKey, String tooltipText, Object source, String sourceKey,
-											  UnitGroup unit, double min, Object max) {
-		return addDoubleModel(panel, labelKey, tooltipText, source, sourceKey, unit, min, max, false);
+											  UnitGroup unit, double min, Object maxSlider, Object max) {
+		return addDoubleModel(panel, labelKey, tooltipText, source, sourceKey, unit, min, maxSlider, max, false);
 	}
 
 
