@@ -12,6 +12,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -27,10 +28,8 @@ public abstract class WelcomeInfoRetriever {
      * @throws IOException if the file could not be read
      */
     public static String retrieveWelcomeInfo(String version) throws IOException {
-        InputStream inputStream = null;
-
         // First, try to load from resources (for packaged application)
-        inputStream = WelcomeInfoRetriever.class.getClassLoader().getResourceAsStream(RELEASE_NOTES_FILENAME);
+        InputStream inputStream = WelcomeInfoRetriever.class.getClassLoader().getResourceAsStream(RELEASE_NOTES_FILENAME);
 
         // If not found in resources, try to load from project root directory
         if (inputStream == null) {
@@ -53,7 +52,7 @@ public abstract class WelcomeInfoRetriever {
             }
         }
 
-        try (InputStreamReader reader = new InputStreamReader(inputStream)) {
+        try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
             InputSource source = new InputSource(reader);
             ReleaseNotesHandler handler = new ReleaseNotesHandler(version);
             WarningSet warnings = new WarningSet();
@@ -63,12 +62,10 @@ public abstract class WelcomeInfoRetriever {
         } catch (SAXException e) {
             throw new IOException("Failed to parse release notes: " + e.getMessage(), e);
         } finally {
-            if (inputStream != null) {
-                try {
-                    inputStream.close();
-                } catch (IOException e) {
-                    // Ignore close errors
-                }
+            try {
+                inputStream.close();
+            } catch (IOException e) {
+                // Ignore close errors
             }
         }
     }

@@ -25,6 +25,7 @@ import javax.swing.event.ListSelectionListener;
 import javax.swing.table.DefaultTableCellRenderer;
 
 import info.openrocket.core.document.OpenRocketDocument;
+import info.openrocket.core.rocketcomponent.ComponentChangeEvent;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.swing.gui.main.BasicFrame;
 import net.miginfocom.swing.MigLayout;
@@ -33,6 +34,7 @@ import info.openrocket.core.database.Databases;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.material.Material;
 import info.openrocket.core.startup.Application;
+import info.openrocket.core.unit.Unit;
 import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.unit.Value;
 
@@ -107,6 +109,36 @@ public class MaterialEditPanel extends JPanel {
 						return Value.class;
 					}
 				},
+				//// Shear Modulus
+				new Column(trans.get("matedtpan.col.ShearModulus")) {
+					@Override
+					public Object getValueAt(int row) {
+						Material m = getMaterial(row);
+						double g = m.getInPlaneShearModulus();
+						// Only show shear modulus for bulk materials
+						if (m.getType() == Material.Type.BULK && g > 0) {
+							// Use GPa for display in the table
+							try {
+								Unit gpaUnit = UnitGroup.UNITS_SHEAR_MODULUS.getUnit("GPa");
+								return gpaUnit.toValue(g);
+							} catch (IllegalArgumentException e) {
+								// Fallback to default unit if GPa is not found
+								return UnitGroup.UNITS_SHEAR_MODULUS.toValue(g);
+							}
+						}
+						return "";
+					}
+					
+					@Override
+					public int getDefaultWidth() {
+						return 15;
+					}
+					
+					@Override
+					public Class<?> getColumnClass() {
+						return Object.class;
+					}
+				},
 				//// Group
 				new Column(trans.get("matedtpan.col.Group")) {
 					@Override
@@ -165,7 +197,7 @@ public class MaterialEditPanel extends JPanel {
 				Material mat = dialog.getMaterial();
 				mat.setDocumentMaterial(!dialog.isAddSelected());
 				addMaterial(mat);
-				model.fireTableDataChanged();
+				fireChange(model);
 				setButtonStates();
 			}
 		});
@@ -236,7 +268,7 @@ public class MaterialEditPanel extends JPanel {
 					addMaterial(mat);
 				}
 
-				model.fireTableDataChanged();
+				fireChange(model);
 				setButtonStates();
 			}
 		});
@@ -257,7 +289,7 @@ public class MaterialEditPanel extends JPanel {
 				if (!m.isUserDefined())
 					return;
 				removeMaterial(m, true);
-				model.fireTableDataChanged();
+				fireChange(model);
 				setButtonStates();
 			}
 		});
@@ -315,7 +347,7 @@ public class MaterialEditPanel extends JPanel {
 							iterator.remove();
 					}
 
-					model.fireTableDataChanged();
+					fireChange(model);
 					setButtonStates();
 				}
 			}
@@ -343,6 +375,11 @@ public class MaterialEditPanel extends JPanel {
 		this.add(new StyledLabel(trans.get("matedtpan.lbl.edtmaterials"), -2, Style.ITALIC), "span");
 		
 
+	}
+
+	private void fireChange(ColumnTableModel model) {
+		model.fireTableDataChanged();
+		document.getRocket().fireComponentChangeEvent(ComponentChangeEvent.MASS_CHANGE);
 	}
 
 	private void addMaterial(Material m) {

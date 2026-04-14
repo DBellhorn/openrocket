@@ -19,6 +19,7 @@ import info.openrocket.core.file.wavefrontobj.export.OBJExportOptions;
 import info.openrocket.core.material.Material;
 import info.openrocket.core.models.atmosphere.AtmosphericModel;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
+import info.openrocket.core.models.gravity.GravityModelType;
 import info.openrocket.core.models.wind.PinkNoiseWindModel;
 import info.openrocket.core.preset.ComponentPreset;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
@@ -34,13 +35,19 @@ import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.BuildProperties;
 import info.openrocket.core.util.ChangeSource;
+import info.openrocket.core.util.FileUtils;
 import info.openrocket.core.util.ORColor;
 import info.openrocket.core.util.GeodeticComputationStrategy;
 import info.openrocket.core.util.LineStyle;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.StateChangeListener;
+import info.openrocket.core.simulation.SimulationStepperMethod;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class ApplicationPreferences implements ChangeSource, ORPreferences, SimulationOptionsInterface, StateChangeListener {
+	private static final Logger log = LoggerFactory.getLogger(ApplicationPreferences.class);
+
 	private static final String SPLIT_CHARACTER = "|";
 
 	/*
@@ -67,8 +74,12 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	public static final String EXPORT_COMMENT_CHARACTER = "ExportCommentCharacter";
 	public static final String USER_LOCAL = "locale";
 	public static final String DEFAULT_DIRECTORY = "defaultDirectory";
+	public static final String FILE_PREVIEW_VIEW_TYPE = "FilePreviewViewType";
 
 	public static final String PLOT_SHOW_POINTS = "ShowPlotPoints";
+    public static final String PLOT_SHOW_EVENTS = "ShowPlotEvents";
+    
+    public static final String CALIPER_OPEN_MINIMIZED = "CaliperOpenMinimized";
 
 	private static final String IGNORE_WELCOME = "IgnoreWelcome";
 
@@ -76,6 +87,8 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 
 	private static final String IGNORE_UPDATE_VERSIONS = "IgnoreUpdateVersions";
 	private static final String CHECK_BETA_UPDATES = "CheckBetaUpdates";
+	private static final String CHECK_MOTOR_DATABASE_UPDATES = "CheckMotorDatabaseUpdates";
+	private static final String IGNORE_MOTOR_DATABASE_UPDATE_VERSIONS = "IgnoreMotorDatabaseUpdateVersions";
 
 	public static final String MOTOR_DIAMETER_FILTER = "MotorDiameterMatch";
 	public static final String MOTOR_HIDE_SIMILAR = "MotorHideSimilar";
@@ -141,10 +154,14 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	public static final String LAUNCH_LONGITUDE = "LaunchLongitude";
 	public static final String LAUNCH_TEMPERATURE = "LaunchTemperature";
 	public static final String LAUNCH_PRESSURE = "LaunchPressure";
+	public static final String LAUNCH_RELATIVE_HUMIDITY = "LaunchRelativeHumidity";
 	public static final String LAUNCH_USE_ISA = "LaunchUseISA";
 	public static final String SIMULATION_TIME_STEP = "SimulationTimeStep";
 	public static final String SIMULATION_MAX_TIME = "SimulationMaxTime";
 	public static final String GEODETIC_COMPUTATION = "GeodeticComputationStrategy";
+	public static final String GRAVITY_MODEL = "GravityModel";
+	public static final String CONSTANT_GRAVITY_VALUE = "ConstantGravityValue";
+	public static final String SIMULATION_STEPPER_METHOD = "SimulationStepperMethod";
 
 	public static final String UI_THEME = "UITheme";
 
@@ -173,10 +190,27 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	// SVG export options
 	public static final String SVG_STROKE_COLOR = "SVGStrokeColor";
 	public static final String SVG_STROKE_WIDTH = "SVGStrokeWidth";
-	
+  public static final String SVG_DRAW_CROSSHAIR = "SVGDrawCrosshair";
+	public static final String SVG_CROSSHAIR_COLOR = "SVGCrosshairColor";
+	public static final String SVG_CROSSHAIR_SIZE = "SVGCrosshairSize";
+	public static final String SVG_SHOW_LABELS = "SVGShowLabels";
+	public static final String SVG_LABEL_COLOR = "SVGLabelColor";
+	public static final String SVG_PART_SPACING = "SVGPartSpacing";
+
+	// Texture generation options
+	public static final String TEXTURE_GENERATION_DPI = "TextureGenerationDPI";
+	public static final String TEXTURE_GENERATION_DRAW_OUTLINE = "TextureGenerationDrawOutline";
+	public static final String TEXTURE_GENERATION_OUTLINE_PX = "TextureGenerationOutlinePx";
+	public static final String TEXTURE_GENERATION_RESET_TRANSFORMS = "TextureGenerationResetTransforms";
+	public static final String TEXTURE_GENERATION_OUTLINE_COLOR = "TextureGenerationOutlineColor";
+
 	private static final AtmosphericModel ISA_ATMOSPHERIC_MODEL = new ExtendedISAModel();
 
 	private PinkNoiseWindModel averageWindModel = null;
+
+	// Default component colors. This is filled by SwingPreferences, but defined here so it can be used by code
+	// in the core module.
+	protected final HashMap<Class<?>, String> DEFAULT_COLORS = new HashMap<>();
 
 
 	/*
@@ -215,6 +249,23 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	public abstract java.util.prefs.Preferences getNode(String nodeName);
 
 	public abstract java.util.prefs.Preferences getPreferences();
+
+	public File getDefaultDirectory() {
+		String file = getString(ApplicationPreferences.DEFAULT_DIRECTORY, null);
+		if (file == null)
+			return null;
+		return new File(file);
+	}
+
+	public void setDefaultDirectory(File dir) {
+		String d;
+		if (dir == null) {
+			d = null;
+		} else {
+			d = dir.getAbsolutePath();
+		}
+		putString(ApplicationPreferences.DEFAULT_DIRECTORY, d);
+	}
 
 	/*
 	 * Welcome dialog
@@ -263,6 +314,22 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 
 	public final void setCheckBetaUpdates(boolean check) {
 		this.putBoolean(CHECK_BETA_UPDATES, check);
+	}
+
+	public final boolean getCheckMotorDatabaseUpdates() {
+		return this.getBoolean(CHECK_MOTOR_DATABASE_UPDATES, true);
+	}
+
+	public final void setCheckMotorDatabaseUpdates(boolean check) {
+		this.putBoolean(CHECK_MOTOR_DATABASE_UPDATES, check);
+	}
+
+	public final List<String> getIgnoreMotorDatabaseUpdateVersions() {
+		return List.of(this.getString(IGNORE_MOTOR_DATABASE_UPDATE_VERSIONS, "").split("\n"));
+	}
+
+	public final void setIgnoreMotorDatabaseUpdateVersions(List<String> versions) {
+		this.putString(IGNORE_MOTOR_DATABASE_UPDATE_VERSIONS, String.join("\n", versions));
 	}
 
 
@@ -398,10 +465,13 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	
 	
 	public double getLaunchRodDirection() {
-		if (this.getBoolean(LAUNCH_INTO_WIND, true)) {
-			this.setLaunchRodDirection(this.getDouble(WIND_DIRECTION, Math.PI / 2));
+		if (this.getBoolean(LAUNCH_INTO_WIND, false)) {
+			// When launching into wind, sync the launch rod direction with wind direction
+			double windDirection = this.getDouble(WIND_DIRECTION, Math.PI / 2);
+			this.setLaunchRodDirection(windDirection);
+			return windDirection;
 		}
-		return this.getDouble(WIND_DIRECTION, Math.PI / 2);
+		return this.getDouble(LAUNCH_ROD_DIRECTION, Math.PI / 2);
 	}
 	
 	public void setLaunchRodDirection(double launchRodDirection) {
@@ -453,6 +523,7 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 		if (isISAAtmosphere()) {
 			setLaunchTemperature(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getTemperature());
 			setLaunchPressure(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getPressure());
+			setLaunchRelativeHumidity(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getRelativeHumidity());
 		}
 
 		fireChangeEvent();
@@ -538,8 +609,27 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 		this.putDouble(LAUNCH_PRESSURE, launchPressure);
 		fireChangeEvent();
 	}
-	
-	
+
+	/**
+	 * Returns the relative humidity at the launch site.
+	 * @return the launch site relative humidity (0 to 1)
+	 */
+	public double getLaunchRelativeHumidity() {
+		return this.getDouble(LAUNCH_RELATIVE_HUMIDITY, ExtendedISAModel.STANDARD_RELATIVE_HUMIDITY);
+	}
+
+	/**
+	 * Sets the relative humidity at the launch site.
+	 * @param launchHumidity the launch site relative humidity (0 to 1)
+	 */
+	public void setLaunchRelativeHumidity(double launchHumidity) {
+		if (MathUtil.equals(this.getDouble(LAUNCH_RELATIVE_HUMIDITY, ExtendedISAModel.STANDARD_RELATIVE_HUMIDITY), launchHumidity))
+			return;
+		this.putDouble(LAUNCH_RELATIVE_HUMIDITY, launchHumidity);
+		fireChangeEvent();
+	}
+
+
 	public boolean isISAAtmosphere() {
 		return this.getBoolean(LAUNCH_USE_ISA, true);
 	}
@@ -554,6 +644,7 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 		if (isa) {
 			setLaunchTemperature(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getTemperature());
 			setLaunchPressure(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getPressure());
+			setLaunchRelativeHumidity(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchRelativeHumidity()).getRelativeHumidity());
 		}
 
 		fireChangeEvent();
@@ -571,7 +662,8 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 		}
 		return new ExtendedISAModel(getLaunchAltitude(),
 				this.getDouble(LAUNCH_TEMPERATURE, ExtendedISAModel.STANDARD_TEMPERATURE),
-				this.getDouble(LAUNCH_PRESSURE, ExtendedISAModel.STANDARD_PRESSURE));
+				this.getDouble(LAUNCH_PRESSURE, ExtendedISAModel.STANDARD_PRESSURE),
+				this.getDouble(LAUNCH_RELATIVE_HUMIDITY, ExtendedISAModel.STANDARD_RELATIVE_HUMIDITY));
 	}
 
 	public GeodeticComputationStrategy getGeodeticComputation() {
@@ -581,6 +673,33 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	public void setGeodeticComputation(GeodeticComputationStrategy gcs) {
 		this.putEnum(GEODETIC_COMPUTATION, gcs);
 	}
+
+	public GravityModelType getGravityModel() {
+		return this.getEnum(GRAVITY_MODEL, GravityModelType.WGS);
+	}
+
+	public void setGravityModel(GravityModelType gmt) {
+		this.putEnum(GRAVITY_MODEL, gmt);
+	}
+
+	public double getConstantGravityValue() {
+		return this.getDouble(CONSTANT_GRAVITY_VALUE, 9.807);
+	}
+
+	public void setConstantGravityValue(double value) {
+		if (MathUtil.equals(this.getDouble(CONSTANT_GRAVITY_VALUE, 9.807), value))
+			return;
+		this.putDouble(CONSTANT_GRAVITY_VALUE, value);
+		fireChangeEvent();
+	}
+
+	public SimulationStepperMethod getSimulationStepperMethodChoice() {
+		return this.getEnum(SIMULATION_STEPPER_METHOD, SimulationStepperMethod.RK4);
+	}
+	public void setSimulationStepperMethodChoice(SimulationStepperMethod choice) {
+		this.putEnum(SIMULATION_STEPPER_METHOD, choice);
+	}
+
 
 	public double getTimeStep() {
 		return this.getDouble(ApplicationPreferences.SIMULATION_TIME_STEP, RK4SimulationStepper.RECOMMENDED_TIME_STEP);
@@ -934,7 +1053,7 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	 * @param defaultValue
 	 * @return
 	 */
-	public final ORColor getColor(String key, ORColor defaultValue) {
+	public final ORColor getORColor(String key, ORColor defaultValue) {
 		ORColor c = parseColor(getString(key, null));
 		if (c == null) {
 			return defaultValue;
@@ -985,8 +1104,7 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	 * @return
 	 */
 	protected static String stringifyColor(ORColor color) {
-		String string = color.getRed() + "," + color.getGreen() + "," + color.getBlue();
-		return string;
+		return color.getRed() + "," + color.getGreen() + "," + color.getBlue();
 	}
 
 	/**
@@ -1080,18 +1198,12 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 
 	public File getDefaultUserComponentFile() {
 		File compdir = new File(SystemInfo.getUserApplicationDirectory(), "Components");
-
-		if (!compdir.isDirectory()) {
-			compdir.mkdirs();
-		}
-
-		if (!compdir.isDirectory()) {
+		try {
+			return FileUtils.makeDirectoryIfNotExists(compdir);
+		} catch (Exception e) {
+			log.warn("Could not create library directory: {}", compdir.getAbsolutePath(), e);
 			return null;
 		}
-		if (!compdir.canRead()) {
-			return null;
-		}
-		return compdir;
 	}
 
 	/**
@@ -1303,7 +1415,7 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	 * @return the stroke color for the SVG
 	 */
 	public Color getSVGStrokeColor() {
-		return getColor(SVG_STROKE_COLOR, ORColor.fromAWTColor(Color.BLACK)).toAWTColor();
+		return getORColor(SVG_STROKE_COLOR, ORColor.fromAWTColor(Color.BLACK)).toAWTColor();
 	}
 
 	/**
@@ -1331,6 +1443,184 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	 */
 	public void setSVGStrokeWidth(double width) {
 		putDouble(SVG_STROKE_WIDTH, width);
+	}
+
+	/**
+  * Returns whether SVG exports should include crosshairs (used for centering rings/bulkheads).
+	 *
+	 * @return true if crosshairs should be drawn
+	 */
+	public boolean isSVGDrawCrosshair() {
+		return getBoolean(SVG_DRAW_CROSSHAIR, false);
+	}
+
+	/**
+	 * Sets whether SVG exports should include crosshairs.
+	 *
+	 * @param drawCrosshair true to include crosshairs
+	 */
+	public void setSVGDrawCrosshair(boolean drawCrosshair) {
+		putBoolean(SVG_DRAW_CROSSHAIR, drawCrosshair);
+	}
+
+	/**
+	 * Returns the color used for crosshair guides in SVG exports.
+	 *
+	 * @return the crosshair color
+	 */
+	public Color getSVGCrosshairColor() {
+		return getORColor(SVG_CROSSHAIR_COLOR, ORColor.fromAWTColor(Color.GRAY)).toAWTColor();
+	}
+
+	/**
+	 * Sets the crosshair color for SVG exports.
+	 *
+	 * @param color the color to use for crosshairs
+	 */
+	public void setSVGCrosshairColor(Color color) {
+		putColor(SVG_CROSSHAIR_COLOR, ORColor.fromAWTColor(color));
+	}
+
+	/**
+	 * Returns the crosshair size used for SVG exports in mm.
+	 * This is the length of one full crosshair line.
+	 *
+	 * @return the crosshair size in mm
+	 */
+	public double getSVGCrosshairSize() {
+		return getDouble(SVG_CROSSHAIR_SIZE, 2.0); // Default 2mm
+	}
+
+	/**
+	 * Sets the crosshair size used for SVG exports in mm.
+	 * This is the length of one full crosshair line.
+	 *
+	 * @param size the crosshair size in mm
+	 */
+	public void setSVGCrosshairSize(double size) {
+		putDouble(SVG_CROSSHAIR_SIZE, size);
+	}
+
+	/**
+	 * Returns whether SVG exports should include component name labels.
+	 *
+	 * @return true if labels should be shown
+	 */
+	public boolean isSVGShowLabels() {
+		return getBoolean(SVG_SHOW_LABELS, true);
+	}
+
+	/**
+	 * Sets whether SVG exports should include component name labels.
+	 *
+	 * @param showLabels true to include labels
+	 */
+	public void setSVGShowLabels(boolean showLabels) {
+		putBoolean(SVG_SHOW_LABELS, showLabels);
+	}
+
+	/**
+	 * Returns the color used for component name labels in SVG exports.
+	 *
+	 * @return the label color
+	 */
+	public Color getSVGLabelColor() {
+		return getORColor(SVG_LABEL_COLOR, ORColor.fromAWTColor(Color.BLACK)).toAWTColor();
+	}
+
+	/**
+	 * Sets the label color for SVG exports.
+	 *
+	 * @param color the color to use for labels
+	 */
+	public void setSVGLabelColor(Color color) {
+		putColor(SVG_LABEL_COLOR, ORColor.fromAWTColor(color));
+	}
+
+	/**
+	 * Returns the part spacing used for SVG exports in meters.
+	 *
+	 * @return the part spacing in meters
+	 */
+	public double getSVGPartSpacing() {
+		return getDouble(SVG_PART_SPACING, 0.01); // Default 10mm
+	}
+
+	/**
+	 * Sets the part spacing used for SVG exports in meters.
+	 *
+	 * @param spacing the part spacing in meters
+	 */
+	public void setSVGPartSpacing(double spacing) {
+		putDouble(SVG_PART_SPACING, spacing);
+  }
+
+  /**
+	 * Returns the texture generation DPI resolution setting.
+	 * @return the texture generation DPI
+	 */
+	public double getTextureGenerationDPI() {
+		return getDouble(TEXTURE_GENERATION_DPI, 300);
+	}
+
+	/**
+	 * Sets the texture generation DPI resolution setting.
+	 * @param dpi the texture generation DPI (dots per inch)
+	 */
+	public void setTextureGenerationDPI(double dpi) {
+		putDouble(TEXTURE_GENERATION_DPI, dpi);
+	}
+
+	/**
+	 * Returns whether to draw component outlines in texture generation.
+	 * @return true to draw outlines, false otherwise
+	 */
+	public boolean isTextureGenerationDrawOutline() {
+		return getBoolean(TEXTURE_GENERATION_DRAW_OUTLINE, true);
+	}
+
+	/**
+	 * Sets whether to draw component outlines in texture generation.
+	 * @param drawOutline true to draw outlines, false otherwise
+	 */
+	public void setTextureGenerationDrawOutline(boolean drawOutline) {
+		putBoolean(TEXTURE_GENERATION_DRAW_OUTLINE, drawOutline);
+	}
+
+	/**
+	 * Returns the preferred outline thickness for fin textures (in pixels).
+	 */
+	public int getTextureGenerationOutlinePx() {
+		return getInt(TEXTURE_GENERATION_OUTLINE_PX, 1);
+	}
+
+	/**
+	 * Sets the preferred outline thickness for fin textures (in pixels).
+	 */
+	public void setTextureGenerationOutlinePx(int outlinePx) {
+		putInt(TEXTURE_GENERATION_OUTLINE_PX, Math.max(0, outlinePx));
+	}
+
+	/**
+	 * Returns whether texture transforms should be reset when creating a new texture.
+	 */
+	public boolean isTextureGenerationResetTransforms() {
+		return getBoolean(TEXTURE_GENERATION_RESET_TRANSFORMS, true);
+	}
+
+	/**
+	 * Sets whether texture transforms should be reset when creating a new texture.
+	 */
+	public void setTextureGenerationResetTransforms(boolean reset) {
+		putBoolean(TEXTURE_GENERATION_RESET_TRANSFORMS, reset);
+	}
+
+	public Color getTextureGenerationOutlineColor() {
+		return getORColor(TEXTURE_GENERATION_OUTLINE_COLOR, new ORColor(0, 0, 0)).toAWTColor();
+	}
+
+	public void setTextureGenerationOutlineColor(Color color) {
+		putColor(TEXTURE_GENERATION_OUTLINE_COLOR, ORColor.fromAWTColor(color));
 	}
 
 	/**
@@ -1577,6 +1867,19 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 		static {
 			DEFAULT_LINE_STYLES.put(RocketComponent.class, LineStyle.SOLID.name());
 			DEFAULT_LINE_STYLES.put(MassObject.class, LineStyle.DASHED.name());
+		}
+	}
+
+	public ORColor getDefaultColor(Class<? extends RocketComponent> c) {
+		String color = get("componentColors", c, DEFAULT_COLORS);
+		if (color == null)
+			return ORColor.fromAWTColor(Color.BLACK);
+
+		ORColor clr = parseColor(color);
+		if (clr != null) {
+			return clr;
+		} else {
+			return ORColor.fromAWTColor(Color.BLACK);
 		}
 	}
 	

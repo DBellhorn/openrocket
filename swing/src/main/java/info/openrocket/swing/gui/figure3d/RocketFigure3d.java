@@ -36,11 +36,14 @@ import javax.swing.SwingUtilities;
 import javax.swing.event.MouseInputAdapter;
 
 import info.openrocket.core.preferences.ApplicationPreferences;
+import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.swing.gui.util.GUIUtil;
 import info.openrocket.swing.gui.theme.UITheme;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.jogamp.opengl.util.awt.AWTGLReadBufferUtil;
 import com.jogamp.opengl.util.awt.Overlay;
 
 import info.openrocket.core.document.OpenRocketDocument;
@@ -48,7 +51,6 @@ import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.BoundingBox;
 
@@ -103,6 +105,7 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 	RocketRenderer rr = new FigureRenderer();
 
 	private static Color backgroundColor;
+	private Color customBackgroundColor = null;
 
 	static {
 		initColors();
@@ -130,7 +133,29 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 	}
 
 	public static void updateColors() {
-		backgroundColor = GUIUtil.getUITheme().getBackgroundColor();
+		backgroundColor = UITheme.getColor(UITheme.Keys.BACKGROUND);
+	}
+
+	/**
+	 * Get the current background color (custom or theme default).
+	 * @return the background color
+	 */
+	private Color getBackgroundColor() {
+		return customBackgroundColor != null ? customBackgroundColor : backgroundColor;
+	}
+
+	/**
+	 * Set a custom background color for this 3D figure. If null, uses the theme default.
+	 * @param color the custom background color, or null to use theme default
+	 */
+	public void setCustomBackgroundColor(Color color) {
+		this.customBackgroundColor = color;
+		if (canvas != null && canvas instanceof GLAutoDrawable) {
+			((GLAutoDrawable) canvas).invoke(true, drawable -> {
+				display(drawable);
+				return false;
+			});
+		}
 	}
 
 	public void flushTextureCaches() {
@@ -265,7 +290,11 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 			
 			@Override
 			public void mouseClicked(final MouseEvent e) {
-				pickPoint = new Point(lastX, canvas.getHeight() - lastY);
+				// Store the click point in AWT (top-left origin) coordinates and convert to
+				// OpenGL surface coordinates during rendering.  This is important on HiDPI
+				// displays (notably macOS Retina), where component coordinates and the GL
+				// drawable surface size can differ.
+				pickPoint = e.getPoint();
 				pickEvent = e;
 				internalRepaint();
 			}
@@ -307,8 +336,9 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 		GL2 gl = drawable.getGL().getGL2();
 		GLU glu = new GLU();
 
-		gl.glClearColor(backgroundColor.getRed()/ 255.0f, backgroundColor.getGreen()/ 255.0f,
-				backgroundColor.getBlue()/ 255.0f, backgroundColor.getAlpha()/ 255.0f);
+		Color bgColor = getBackgroundColor();
+		gl.glClearColor(bgColor.getRed()/ 255.0f, bgColor.getGreen()/ 255.0f,
+				bgColor.getBlue()/ 255.0f, bgColor.getAlpha()/ 255.0f);
 		gl.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT);
 		
 		setupView(gl, glu);
@@ -318,8 +348,9 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 			gl.glDisable(GL.GL_MULTISAMPLE);
 			gl.glDisable(GLLightingFunc.GL_LIGHTING);
 			
+			final Point surfacePickPoint = toSurfacePickPoint(drawable, pickPoint);
 			final RocketComponent picked = rr.pick(drawable, configuration,
-					pickPoint, pickEvent.isShiftDown() ? selection : null);
+					surfacePickPoint, pickEvent.isShiftDown() ? selection : null);
 			if (csl != null) {
 				final MouseEvent e = pickEvent;
 				SwingUtilities.invokeLater(new Runnable() {
@@ -336,8 +367,8 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 			}
 			pickPoint = null;
 
-			gl.glClearColor(backgroundColor.getRed()/ 255.0f, backgroundColor.getGreen()/ 255.0f,
-					backgroundColor.getBlue()/ 255.0f, backgroundColor.getAlpha()/ 255.0f);
+			gl.glClearColor(bgColor.getRed()/ 255.0f, bgColor.getGreen()/ 255.0f,
+					bgColor.getBlue()/ 255.0f, bgColor.getAlpha()/ 255.0f);
 			gl.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT);
 
 			gl.glEnable(GL.GL_MULTISAMPLE);
@@ -355,6 +386,39 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 		// GLJPanel with GLSL Flipper relies on this:
 		gl.glFrontFace(GL.GL_CCW);
 		
+	}
+
+	/**
+	 * Convert an AWT component coordinate (origin at top-left, in Swing "user space")
+	 * to an OpenGL drawable surface coordinate (origin at bottom-left, in pixel space).
+	 *
+	 * macOS HiDPI (Retina) is a common case where {@code canvas.getWidth()/getHeight()}
+	 * differ from {@code drawable.getSurfaceWidth()/getSurfaceHeight()}.
+	 */
+	private Point toSurfacePickPoint(final GLAutoDrawable drawable, final Point awtPoint) {
+		if (awtPoint == null || canvas == null) {
+			return awtPoint;
+		}
+
+		final int componentWidth = canvas.getWidth();
+		final int componentHeight = canvas.getHeight();
+		final int surfaceWidth = drawable.getSurfaceWidth();
+		final int surfaceHeight = drawable.getSurfaceHeight();
+
+		if (componentWidth <= 0 || componentHeight <= 0 || surfaceWidth <= 0 || surfaceHeight <= 0) {
+			return awtPoint;
+		}
+
+		final double scaleX = (double) surfaceWidth / (double) componentWidth;
+		final double scaleY = (double) surfaceHeight / (double) componentHeight;
+
+		final int x = (int) Math.floor((awtPoint.x + 0.5) * scaleX);
+		final int yTop = (int) Math.floor((awtPoint.y + 0.5) * scaleY);
+		final int y = surfaceHeight - 1 - yTop;
+
+		return new Point(
+				MathUtil.clamp(x, 0, surfaceWidth - 1),
+				MathUtil.clamp(y, 0, surfaceHeight - 1));
 	}
 	
 	/**
@@ -384,8 +448,8 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 		caretOverlay.markDirty(0, 0, drawable.getSurfaceWidth(), drawable.getSurfaceHeight());
 		
 		// The existing relative Extras don't really work right for 3d.
-		Coordinate pCP = project(cp, gl, glu);
-		Coordinate pCG = project(cg, gl, glu);
+		CoordinateIF pCP = project(cp, gl, glu);
+		CoordinateIF pCG = project(cg, gl, glu);
 		
 		final int d = CARET_SIZE / 2;
 		double height = canvas.getHeight();
@@ -397,11 +461,11 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 		 * following does work though.
 		 */
 		double displayScale = getGraphicsConfiguration().getDefaultTransform().getScaleX();
-		AffineTransform cgTransform = AffineTransform.getTranslateInstance(((pCG.x / displayScale) - d), height - ((pCG.y / displayScale) + d));
-		AffineTransform cpTransform = AffineTransform.getTranslateInstance(((pCP.x / displayScale) - d), height - ((pCP.y / displayScale) + d));
+		AffineTransform cgTransform = AffineTransform.getTranslateInstance(((pCG.getX() / displayScale) - d), height - ((pCG.getY() / displayScale) + d));
+		AffineTransform cpTransform = AffineTransform.getTranslateInstance(((pCP.getX() / displayScale) - d), height - ((pCP.getY() / displayScale) + d));
 		
 		//z order the carets 
-		if (pCG.z < pCP.z) {
+		if (pCG.getZ() < pCP.getZ()) {
 			//Subtract half of the caret size, so they are centered ( The +/- d in each translate)
 			//Flip the sense of the Y coordinate from GL to normal (Y+ up/down)
 			og2d.drawRenderedImage(cpCaretRaster, cpTransform);
@@ -538,9 +602,9 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 		// Calculate the distance needed to fit the bounds in both the X and Y
 		// direction
 		// Add 10% for space around it.
-		final double maxR = Math.max( Math.hypot(b.min.y, b.min.z),
-				Math.hypot(b.max.y, b.max.z));
-		final double dX = (b.span().x * 1.2 / 2.0)
+		final double maxR = Math.max( Math.hypot(b.min.getY(), b.min.getZ()),
+				Math.hypot(b.max.getY(), b.max.getZ()));
+		final double dX = (b.span().getX() * 1.2 / 2.0)
 				/ Math.tan(Math.toRadians(fovX / 2.0));
 		final double dY = (2*maxR * 1.2 / 2.0)
 				/ Math.tan(Math.toRadians(fovY / 2.0));
@@ -552,7 +616,7 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 		gl.glRotated(roll * (180.0 / Math.PI), 1, 0, 0);
 		
 		// Center the rocket in the view.
-		gl.glTranslated(-b.min.x - b.span().x / 2.0, 0, 0);
+		gl.glTranslated(-b.min.getX() - b.span().getX() / 2.0, 0, 0);
 		
 		//Change to LEFT Handed coordinates
 		gl.glScaled(1, 1, -1);
@@ -622,7 +686,7 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 	
 	// ///////////// Extra methods
 	
-	private Coordinate project(final Coordinate c, final GL2 gl, final GLU glu) {
+	private CoordinateIF project(final CoordinateIF c, final GL2 gl, final GLU glu) {
 		final double[] mvmatrix = new double[16];
 		final double[] projmatrix = new double[16];
 		final int[] viewport = new int[4];
@@ -632,22 +696,22 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 		gl.glGetDoublev(GLMatrixFunc.GL_PROJECTION_MATRIX, projmatrix, 0);
 		
 		final double out[] = new double[4];
-		glu.gluProject(c.x, c.y, c.z, mvmatrix, 0, projmatrix, 0, viewport, 0,
+		glu.gluProject(c.getX(), c.getY(), c.getZ(), mvmatrix, 0, projmatrix, 0, viewport, 0,
 				out, 0);
 		
 		return new Coordinate(out[0], out[1], out[2]);
 		
 	}
 	
-	private Coordinate cp = new Coordinate(0, 0, 0);
-	private Coordinate cg = new Coordinate(0, 0, 0);
+	private CoordinateIF cp = new Coordinate(0, 0, 0);
+	private CoordinateIF cg = new Coordinate(0, 0, 0);
 	
-	public void setCG(final Coordinate cg) {
+	public void setCG(final CoordinateIF cg) {
 		this.cg = cg;
 		redrawExtras = true;
 	}
 	
-	public void setCP(final Coordinate cp) {
+	public void setCP(final CoordinateIF cp) {
 		this.cp = cp;
 		redrawExtras = true;
 	}
@@ -736,5 +800,37 @@ public class RocketFigure3d extends JPanel implements GLEventListener {
 
 	public void setDrawCarets(boolean drawCarets) {
 		this.drawCarets = drawCarets;
+	}
+
+	/**
+	 * Captures the current 3D view as a BufferedImage.
+	 * This method renders the current state of the 3D canvas to an image.
+	 *
+	 * @return a BufferedImage containing the current 3D view, or null if capture fails
+	 */
+	public BufferedImage captureImage() {
+		if (canvas == null) {
+			return null;
+		}
+
+		// Use GLAutoDrawable to get the actual surface dimensions (important for HiDPI displays)
+		GLAutoDrawable drawable = (GLAutoDrawable) canvas;
+		int surfaceWidth = drawable.getSurfaceWidth();
+		int surfaceHeight = drawable.getSurfaceHeight();
+		if (surfaceWidth <= 0 || surfaceHeight <= 0) {
+			return null;
+		}
+
+		// Use AWTGLReadBufferUtil to read the framebuffer - works for both GLJPanel and GLCanvas
+		final BufferedImage[] result = new BufferedImage[1];
+		
+		drawable.invoke(true, glDrawable -> {
+			GL2 gl = glDrawable.getGL().getGL2();
+			AWTGLReadBufferUtil readBufferUtil = new AWTGLReadBufferUtil(glDrawable.getGLProfile(), true);
+			result[0] = readBufferUtil.readPixelsToBufferedImage(gl, true);
+			return true;
+		});
+		
+		return result[0];
 	}
 }

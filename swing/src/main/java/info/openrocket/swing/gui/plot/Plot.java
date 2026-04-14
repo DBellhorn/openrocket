@@ -9,6 +9,7 @@ import info.openrocket.core.simulation.FlightEvent;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.unit.Unit;
 import info.openrocket.core.unit.UnitGroup;
+import info.openrocket.swing.gui.util.GUIUtil;
 import info.openrocket.swing.gui.util.SwingPreferences;
 import info.openrocket.swing.utils.DecimalFormatter;
 import org.jfree.chart.ChartFactory;
@@ -92,8 +93,10 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 				/*tooltips*/true,
 				/*urls*/false
 		);
-		this.chart.addSubtitle(new TextTitle(Util.formatHTMLString(config.getName())));
-		this.chart.getTitle().setFont(new Font("Dialog", Font.BOLD, 23));
+		TextTitle subtitle = new TextTitle(Util.formatHTMLString(config.getName()));
+		this.chart.addSubtitle(subtitle);
+		this.chart.getTitle().setFont(GUIUtil.createUIFont(GUIUtil.UI_FONT_STYLE_BOLD, 23.0f, 0.0f));
+		subtitle.setFont(GUIUtil.createUIFont(GUIUtil.UI_FONT_STYLE_REGULAR, 14.0f, 0.0f));
 		this.chart.setBackgroundPaint(new Color(240, 240, 240));
 		this.legendItems = new LegendItems();
 		LegendTitle legend = new LegendTitle(this.legendItems);
@@ -101,6 +104,7 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 		legend.setFrame(BlockBorder.NONE);
 		legend.setBackgroundPaint(new Color(240, 240, 240));
 		legend.setPosition(RectangleEdge.BOTTOM);
+		legend.setItemLabelPadding(new RectangleInsets(1.0, 6.0, 1.0, 12.0));
 		chart.addSubtitle(legend);
 
 		// Create the data series for both axes
@@ -188,7 +192,7 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 				NumberAxis axis = new PresetNumberAxis(min, max);
 				axis.setLabel(axisLabel[axisno]);
 				plot.setRangeAxis(axisno, axis);
-				axis.setLabelFont(new Font("Dialog", Font.BOLD, 14));
+				axis.setLabelFont(GUIUtil.createUIFont(GUIUtil.UI_FONT_STYLE_BOLD, 14.0f, 0.0f));
 
 				double domainMin = data[axisno].getDomainLowerBound(true);
 				double domainMax = data[axisno].getDomainUpperBound(true);
@@ -215,8 +219,8 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 
 						String nameT = FlightDataType.TYPE_TIME.getName();
 						double dataT = Double.NaN;
-						List<Double> time = allBranches.get(ser.getBranchIdx()).get((T)FlightDataType.TYPE_TIME);
-						if (null != time) {
+						final List<Double> time = allBranches.get(ser.getBranchIdx()).get((T)FlightDataType.TYPE_TIME);
+						if (time != null) {
 							dataT = time.get(item);
 						}
 						String unitT = FlightDataType.TYPE_TIME.getUnitGroup().getDefaultUnit().toString();
@@ -267,6 +271,8 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 					Shape itemShape = r.lookupSeriesShape(j);
 					this.legendItems.pointShapes.add(itemShape);
 					Stroke lineStroke = r.getSeriesStroke(j);
+					BasicStroke bs = (BasicStroke) lineStroke;
+					lineStroke = new BasicStroke(12.0f, bs.getEndCap(), bs.getLineJoin(), bs.getMiterLimit(), bs.getDashArray(), bs.getDashPhase());
 					this.legendItems.lineStrokes.add(lineStroke);
 				}
 
@@ -278,7 +284,7 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 		plot.addDomainMarker(new ValueMarker(0));
 		plot.addRangeMarker(new ValueMarker(0));
 
-		plot.getDomainAxis().setLabelFont(new Font("Dialog", Font.BOLD, 14));
+		plot.getDomainAxis().setLabelFont(GUIUtil.createUIFont(GUIUtil.UI_FONT_STYLE_BOLD, 14.0f, 0.0f));
 	}
 
 	protected String getNameBasedOnIdxAndSeries(MetadataXYSeries ser, int dataIdx) {
@@ -395,7 +401,7 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 			for (String s : lineLabels) {
 				String label = s;
 				String description = s;
-				String toolTipText = null;
+				String toolTipText = s;
 				String urlText = null;
 				boolean shapeIsVisible = false;
 				Shape shape = pointShapes.get(i);
@@ -408,7 +414,7 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 				Stroke lineStroke = lineStrokes.get(i);
 				Paint linePaint = linePaints.get(i);
 
-				Shape legendLine = new Line2D.Double(-7.0, 0.0, 7.0, 0.0);
+				Shape legendLine = new Line2D.Double(-.70, 0.0, .70, 0.0);
 
 				LegendItem result = new LegendItem(label, description, toolTipText,
 						urlText, shapeIsVisible, shape, shapeIsFilled, fillPaint,
@@ -427,6 +433,10 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 			r.setDefaultShapesVisible(showPoints);
 		}
 	}
+
+    public void setShowEvents(boolean showEvents) {
+        // Default implementation does nothing
+    }
 
 	/**
 	 * A modification to the standard renderer that renders the domain marker
@@ -465,11 +475,6 @@ public abstract class Plot<T extends DataType, B extends DataBranch<T>, C extend
 		@Override
 		public Paint lookupSeriesOutlinePaint(int series) {
 			return super.lookupSeriesOutlinePaint(series / branchCount);
-		}
-
-		@Override
-		public Stroke lookupSeriesStroke(int series) {
-			return super.lookupSeriesStroke(series / branchCount);
 		}
 
 		@Override

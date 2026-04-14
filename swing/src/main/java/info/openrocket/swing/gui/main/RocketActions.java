@@ -24,11 +24,19 @@ import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 
 import info.openrocket.core.rocketcomponent.AxialStage;
+import info.openrocket.core.rocketcomponent.FlightConfiguration;
+import info.openrocket.core.rocketcomponent.FlightConfigurationId;
+import info.openrocket.core.rocketcomponent.BodyTube;
+import info.openrocket.core.rocketcomponent.Bulkhead;
+import info.openrocket.core.rocketcomponent.CenteringRing;
 import info.openrocket.core.rocketcomponent.ComponentChangeEvent;
 import info.openrocket.core.rocketcomponent.ComponentChangeListener;
+import info.openrocket.core.rocketcomponent.FinSet;
 import info.openrocket.core.rocketcomponent.ParallelStage;
+import info.openrocket.core.rocketcomponent.RailButton;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.swing.gui.configdialog.ComponentConfigDialog;
 import info.openrocket.swing.gui.dialogs.ScaleDialog;
 import info.openrocket.swing.gui.util.GUIUtil;
@@ -56,17 +64,27 @@ import info.openrocket.core.util.Pair;
  */
 public class RocketActions {
 
-	public static final KeyStroke CUT_KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_X,
-			Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-	public static final KeyStroke COPY_KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_C,
-			Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-	public static final KeyStroke PASTE_KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_V,
-			Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-	public static final KeyStroke DUPLICATE_KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_D,
-			Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-	public static final KeyStroke EDIT_KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_E,
-			Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-	public static final KeyStroke DELETE_KEY_STROKE = KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0);
+	// Lazy-loaded KeyStroke constants to avoid HeadlessException during class initialization in test environments
+	private static class KeyStrokes {
+		static final KeyStroke CUT = KeyStroke.getKeyStroke(KeyEvent.VK_X,
+				Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+		static final KeyStroke COPY = KeyStroke.getKeyStroke(KeyEvent.VK_C,
+				Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+		static final KeyStroke PASTE = KeyStroke.getKeyStroke(KeyEvent.VK_V,
+				Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+		static final KeyStroke DUPLICATE = KeyStroke.getKeyStroke(KeyEvent.VK_D,
+				Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+		static final KeyStroke EDIT = KeyStroke.getKeyStroke(KeyEvent.VK_E,
+				Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+		static final KeyStroke DELETE = KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0);
+	}
+
+	public static KeyStroke getCutKeyStroke() { return KeyStrokes.CUT; }
+	public static KeyStroke getCopyKeyStroke() { return KeyStrokes.COPY; }
+	public static KeyStroke getPasteKeyStroke() { return KeyStrokes.PASTE; }
+	public static KeyStroke getDuplicateKeyStroke() { return KeyStrokes.DUPLICATE; }
+	public static KeyStroke getEditKeyStroke() { return KeyStrokes.EDIT; }
+	public static KeyStroke getDeleteKeyStroke() { return KeyStrokes.DELETE; }
 	
 	private final OpenRocketDocument document;
 	private final Rocket rocket;
@@ -87,8 +105,11 @@ public class RocketActions {
 	private final RocketAction moveUpAction;
 	private final RocketAction moveDownAction;
 	private final RocketAction exportOBJAction;
+	private final RocketAction exportSVGAction;
 	private final RocketAction toggleVisibilityAction;
+	private final RocketAction toggleVisibilityContextMenuAction;
 	private final RocketAction showAllComponentsAction;
+	private final RocketAction toggleActiveAction;
 	private static final Translator trans = Application.getTranslator();
 	private static final Logger log = LoggerFactory.getLogger(RocketActions.class);
 
@@ -114,8 +135,11 @@ public class RocketActions {
 		this.moveUpAction = new MoveUpAction();
 		this.moveDownAction = new MoveDownAction();
 		this.exportOBJAction = new ExportOBJAction();
+		this.exportSVGAction = new ExportSVGAction();
 		this.toggleVisibilityAction = new ToggleVisibilityAction();
+		this.toggleVisibilityContextMenuAction = new ContextMenuToggleVisibilityAction();
 		this.showAllComponentsAction = new ShowAllComponentsAction();
+		this.toggleActiveAction = new ToggleActiveAction();
 
 		OpenRocketClipboard.addClipboardListener(new ClipboardListener() {
 			@Override
@@ -164,8 +188,11 @@ public class RocketActions {
 		moveUpAction.clipboardChanged();
 		moveDownAction.clipboardChanged();
 		exportOBJAction.clipboardChanged();
+		exportSVGAction.clipboardChanged();
 		toggleVisibilityAction.clipboardChanged();
+		toggleVisibilityContextMenuAction.clipboardChanged();
 		showAllComponentsAction.clipboardChanged();
+		toggleActiveAction.clipboardChanged();
 	}
 	
 
@@ -219,12 +246,24 @@ public class RocketActions {
 		return exportOBJAction;
 	}
 
+	public Action getExportSVGAction() {
+		return exportSVGAction;
+	}
+
 	public Action getToggleVisibilityAction() {
 		return toggleVisibilityAction;
 	}
 
+	public Action getToggleVisibilityContextMenuAction() {
+		return toggleVisibilityContextMenuAction;
+	}
+
 	public Action getShowAllComponentsAction() {
 		return showAllComponentsAction;
+	}
+
+	public Action getToggleActiveAction() {
+		return toggleActiveAction;
 	}
 
 	/**
@@ -547,7 +586,7 @@ public class RocketActions {
 			//// Edit
 			this.putValue(NAME, trans.get("RocketActions.EditAct.Edit"));
 			this.putValue(MNEMONIC_KEY, KeyEvent.VK_E);
-			this.putValue(ACCELERATOR_KEY, EDIT_KEY_STROKE);
+			this.putValue(ACCELERATOR_KEY, getEditKeyStroke());
 			this.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.EditAct.ttip.Edit"));
 			this.putValue(SMALL_ICON, Icons.EDIT_EDIT);
 			clipboardChanged();
@@ -606,7 +645,7 @@ public class RocketActions {
 			//// Cut
 			this.putValue(NAME, trans.get("RocketActions.CutAction.Cut"));
 			this.putValue(MNEMONIC_KEY, KeyEvent.VK_T);		// Use the 't' in Cut as mnemonic
-			this.putValue(ACCELERATOR_KEY, CUT_KEY_STROKE);
+			this.putValue(ACCELERATOR_KEY, getCutKeyStroke());
 			this.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.CutAction.ttip.Cut"));
 			this.putValue(SMALL_ICON, Icons.EDIT_CUT);
 			clipboardChanged();
@@ -673,7 +712,7 @@ public class RocketActions {
 			this.putValue(NAME, trans.get("RocketActions.CopyAct.Copy"));
 			this.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.CopyAct.ttip.Copy"));
 			this.putValue(MNEMONIC_KEY, KeyEvent.VK_C);
-			this.putValue(ACCELERATOR_KEY, COPY_KEY_STROKE);
+			this.putValue(ACCELERATOR_KEY, getCopyKeyStroke());
 			this.putValue(SMALL_ICON, Icons.EDIT_COPY);
 			clipboardChanged();
 		}
@@ -730,7 +769,7 @@ public class RocketActions {
 			//// Paste
 			this.putValue(NAME, trans.get("RocketActions.PasteAct.Paste"));
 			this.putValue(MNEMONIC_KEY, KeyEvent.VK_V);
-			this.putValue(ACCELERATOR_KEY, PASTE_KEY_STROKE);
+			this.putValue(ACCELERATOR_KEY, getPasteKeyStroke());
 			this.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.PasteAct.ttip.Paste"));
 			this.putValue(SMALL_ICON, Icons.EDIT_PASTE);
 			clipboardChanged();
@@ -809,7 +848,7 @@ public class RocketActions {
 			//// Copy
 			this.putValue(NAME, trans.get("RocketActions.DuplicateAct.Duplicate"));
 			this.putValue(MNEMONIC_KEY, KeyEvent.VK_D);
-			this.putValue(ACCELERATOR_KEY, DUPLICATE_KEY_STROKE);
+			this.putValue(ACCELERATOR_KEY, getDuplicateKeyStroke());
 			this.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.DuplicateAct.ttip.Duplicate"));
 			this.putValue(SMALL_ICON, Icons.EDIT_DUPLICATE);
 			clipboardChanged();
@@ -909,7 +948,7 @@ public class RocketActions {
 			//// Delete the selected component or simulation.
 			this.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.DelAct.ttip.Delete"));
 			this.putValue(MNEMONIC_KEY, KeyEvent.VK_DELETE);
-			this.putValue(ACCELERATOR_KEY, DELETE_KEY_STROKE);
+			this.putValue(ACCELERATOR_KEY, getDeleteKeyStroke());
 			this.putValue(SMALL_ICON, Icons.EDIT_DELETE);
 			clipboardChanged();
 		}
@@ -1270,7 +1309,6 @@ public class RocketActions {
 				return;
 			}
 
-			ComponentConfigDialog.disposeDialog();
 			parentFrame.exportWavefrontOBJAction();
 		}
 
@@ -1296,6 +1334,57 @@ public class RocketActions {
 		}
 	}
 
+	private class ExportSVGAction extends RocketAction {
+		private static final long serialVersionUID = 1L;
+
+		public ExportSVGAction() {
+			this.putValue(NAME, trans.get("RocketActions.ExportSVGAct.ExportSVG"));
+			this.putValue(SMALL_ICON, Icons.EXPORT_SVG);
+			this.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.ExportSVGAct.ttip.ExportSVG"));
+			clipboardChanged();
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			List<RocketComponent> components = selectionModel.getSelectedComponents();
+			if (components.isEmpty()) {
+				return;
+			}
+
+			parentFrame.exportSVGAction();
+		}
+
+		@Override
+		public void clipboardChanged() {
+			List<RocketComponent> components = selectionModel.getSelectedComponents();
+			boolean hasExportableComponent = hasExportableComponent(components);
+			this.setEnabled(hasExportableComponent);
+		}
+
+		private static boolean hasExportableComponent(List<RocketComponent> components) {
+			for (RocketComponent component : components) {
+				if (isExportable(component)) {
+					return true;
+				}
+				for (RocketComponent child : component.getAllChildren()) {
+					if (isExportable(child)) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		private static boolean isExportable(RocketComponent component) {
+			return component instanceof CenteringRing ||
+					component instanceof Bulkhead ||
+					component instanceof FinSet ||
+					component instanceof Transition ||
+					component instanceof BodyTube ||
+					component instanceof RailButton;
+		}
+	}
+
 	/**
 	 * Action to toggle the visibility of the selected components.
 	 * @see RocketComponent#isVisible()
@@ -1304,7 +1393,7 @@ public class RocketActions {
 		public ToggleVisibilityAction() {
 			super.putValue(NAME, trans.get("RocketActions.VisibilityAct.HideSelected"));
 			super.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.VisibilityAct.ttip.HideSelected"));
-			super.putValue(SMALL_ICON, GUIUtil.getUITheme().getVisibilityHiddenIcon());
+			super.putValue(SMALL_ICON, Icons.COMPONENT_HIDDEN);
 			clipboardChanged();
 		}
 
@@ -1325,8 +1414,8 @@ public class RocketActions {
 						trans.get("RocketActions.VisibilityAct.ttip.HideAll") :
 						trans.get("RocketActions.VisibilityAct.ttip.ShowAll"));
 				super.putValue(SMALL_ICON, rocket.isVisible() ?
-						GUIUtil.getUITheme().getVisibilityHiddenIcon() :
-						GUIUtil.getUITheme().getVisibilityShowingIcon());
+						Icons.COMPONENT_HIDDEN :
+						Icons.COMPONENT_SHOWING);
 			} else {
 				var visibility = components.stream().anyMatch(RocketComponent::isVisible);
 				super.putValue(NAME, visibility ?
@@ -1336,8 +1425,8 @@ public class RocketActions {
 						trans.get("RocketActions.VisibilityAct.ttip.HideSelected") :
 						trans.get("RocketActions.VisibilityAct.ttip.ShowSelected"));
 				super.putValue(SMALL_ICON, visibility ?
-						GUIUtil.getUITheme().getVisibilityHiddenIcon() :
-						GUIUtil.getUITheme().getVisibilityShowingIcon());
+						Icons.COMPONENT_HIDDEN :
+						Icons.COMPONENT_SHOWING);
 			}
 		}
 
@@ -1391,6 +1480,25 @@ public class RocketActions {
 	}
 
 	/**
+	 * Variant of ToggleVisibilityAction for use in the component tree context menu.
+	 * Uses short "Hide"/"Show" labels instead of "Hide selected"/"Show selected".
+	 */
+	private class ContextMenuToggleVisibilityAction extends ToggleVisibilityAction {
+		@Override
+		public void clipboardChanged() {
+			super.clipboardChanged();
+			var components = new ArrayList<>(selectionModel.getSelectedComponents());
+			if (components.isEmpty()) {
+				return;
+			}
+			boolean anyVisible = components.stream().anyMatch(RocketComponent::isVisible);
+			putValue(NAME, anyVisible
+					? trans.get("RocketActions.VisibilityAct.Hide")
+					: trans.get("RocketActions.VisibilityAct.Show"));
+		}
+	}
+
+	/**
 	 * Action to show all hidden components.
 	 * @see RocketComponent#isVisible()
 	 */
@@ -1398,7 +1506,7 @@ public class RocketActions {
 		public ShowAllComponentsAction() {
 			super.putValue(NAME, trans.get("RocketActions.VisibilityAct.ShowAll"));
 			super.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.VisibilityAct.ttip.ShowAll"));
-			super.putValue(SMALL_ICON, GUIUtil.getUITheme().getVisibilityShowingIcon());
+			super.putValue(SMALL_ICON, Icons.COMPONENT_SHOWING);
 			clipboardChanged();
 		}
 
@@ -1411,6 +1519,119 @@ public class RocketActions {
 		public void actionPerformed(ActionEvent e) {
 			rocket.setVisible(true);
 			getDescendants(rocket).forEach(descendant -> descendant.setVisible(true));
+		}
+	}
+
+	/**
+	 * Action to toggle the active state of selected components.
+	 * Currently supports AxialStage components via FlightConfiguration.
+	 * The popup menu in BasicFrame controls which component types this action is visible for.
+	 */
+	private class ToggleActiveAction extends RocketAction {
+		public ToggleActiveAction() {
+			super.putValue(NAME, trans.get("RocketActions.StageActiveAct.DisableSelected"));
+			super.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.StageActiveAct.ttip.DisableSelected"));
+			super.putValue(SMALL_ICON, Icons.COMPONENT_DISABLED);
+			clipboardChanged();
+		}
+
+		@Override
+		public void clipboardChanged() {
+			var components = new ArrayList<>(selectionModel.getSelectedComponents());
+			// Only consider AxialStage components
+			List<RocketComponent> stages = components.stream()
+					.filter(AxialStage.class::isInstance)
+					.toList();
+			super.setEnabled(!stages.isEmpty());
+
+			if (stages.isEmpty()) {
+				return;
+			}
+
+			FlightConfiguration config = rocket.getSelectedConfiguration();
+			// isStageActive() returns false for childless stages, so check getChildCount separately
+			boolean anyNoChildren = stages.stream().anyMatch(s -> s.getChildCount() == 0);
+			boolean anyActive = stages.stream().anyMatch(s -> config.isStageActive(s.getStageNumber()));
+
+			if (anyNoChildren || anyActive) {
+				super.putValue(NAME, trans.get("RocketActions.StageActiveAct.DisableSelected"));
+				super.putValue(SMALL_ICON, Icons.COMPONENT_DISABLED);
+
+				String cannotDisableReason = getCannotDisableReason(stages, config);
+				if (cannotDisableReason != null) {
+					super.setEnabled(false);
+					super.putValue(SHORT_DESCRIPTION, cannotDisableReason);
+				} else {
+					super.setEnabled(true);
+					super.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.StageActiveAct.ttip.DisableSelected"));
+				}
+			} else {
+				super.putValue(NAME, trans.get("RocketActions.StageActiveAct.EnableSelected"));
+				super.putValue(SHORT_DESCRIPTION, trans.get("RocketActions.StageActiveAct.ttip.EnableSelected"));
+				super.putValue(SMALL_ICON, Icons.COMPONENT_ENABLED);
+				super.setEnabled(true);
+			}
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			var components = new ArrayList<>(selectionModel.getSelectedComponents());
+			if (components.isEmpty()) {
+				return;
+			}
+
+			FlightConfiguration config = rocket.getSelectedConfiguration();
+			List<RocketComponent> stages = components.stream()
+					.filter(AxialStage.class::isInstance)
+					.toList();
+			if (stages.isEmpty()) {
+				return;
+			}
+			boolean shouldActivate = stages.stream().noneMatch(s -> config.isStageActive(s.getStageNumber()));
+			FlightConfigurationId configId = config.getFlightConfigurationID();
+
+			stages.forEach(component -> {
+				if (component instanceof AxialStage stage) {
+					boolean isActive = config.isStageActive(stage.getStageNumber());
+					if (isActive != shouldActivate) {
+						config.toggleStage(stage.getStageNumber());
+					}
+				}
+				// Future: handle other component types here
+			});
+
+			rocket.fireComponentChangeEvent(ComponentChangeEvent.AEROMASS_CHANGE | ComponentChangeEvent.MOTOR_CHANGE | ComponentChangeEvent.TREE_CHANGE_CHILDREN, configId);
+		}
+
+		/**
+		 * Returns the reason why the selected components cannot be disabled, or null if they can.
+		 * AxialStage-specific constraints: no children, or last active stage.
+		 * Future component types can add their own constraints here.
+		 */
+		private String getCannotDisableReason(List<RocketComponent> components, FlightConfiguration config) {
+			// Stages with no children are never toggleable (mirrors StageSelector's StageAction)
+			if (components.stream().anyMatch(s -> s.getChildCount() == 0)) {
+				return trans.get("RocketActions.StageActiveAct.ttip.CannotDisableNoChildren");
+			}
+
+			// AxialStage-specific: cannot disable if it would leave no active stages
+			if (components.stream().anyMatch(AxialStage.class::isInstance)) {
+				long totalActive = rocket.getAllChildAssemblies().stream()
+						.filter(AxialStage.class::isInstance)
+						.map(AxialStage.class::cast)
+						.filter(s -> config.isStageActive(s.getStageNumber()))
+						.count();
+
+				long selectedActive = components.stream()
+						.filter(s -> config.isStageActive(s.getStageNumber()))
+						.count();
+
+				if (selectedActive > 0 && totalActive - selectedActive <= 0) {
+					return trans.get("RocketActions.StageActiveAct.ttip.CannotDisableLastStage");
+				}
+			}
+
+			return null;
 		}
 	}
 }

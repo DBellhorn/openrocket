@@ -50,23 +50,29 @@ public class ShockCordConfig extends RocketComponentConfig {
 		label = new JLabel(trans.get("ShockCordCfg.lbl.Shockcordlength"));
 		panel.add(label);
 		
-		m = new DoubleModel(component, "CordLength", UnitGroup.UNITS_LENGTH, 0);
-		register(m);
+		final DoubleModel cordLengthModel = new DoubleModel(component, "CordLength", UnitGroup.UNITS_LENGTH, 0);
+		register(cordLengthModel);
 		
-		spin = new JSpinner(m.getSpinnerModel());
+		spin = new JSpinner(cordLengthModel.getSpinnerModel());
 		spin.setEditor(new SpinnerEditor(spin));
 		panel.add(spin, "growx");
 		order.add(((SpinnerEditor) spin.getEditor()).getTextField());
 		
-		panel.add(new UnitSelector(m), "growx");
-		panel.add(new BasicSlider(m.getSliderModel(0, 1, 10)), "w 100lp, wrap");
+		panel.add(new UnitSelector(cordLengthModel), "growx");
+		panel.add(new BasicSlider(cordLengthModel.getSliderModel(0, 1, 10)), "w 100lp, wrap");
+
+		final JCheckBox checkAutoCordLength = new JCheckBox(cordLengthModel.getAutomaticAction());
+		checkAutoCordLength.setText(trans.get("ShockCordCfg.checkbox.AutomaticLength"));
+		checkAutoCordLength.setToolTipText(trans.get("ShockCordCfg.checkbox.AutomaticLength.ttip"));
+		panel.add(checkAutoCordLength, "skip, span, wrap");
+		order.add(checkAutoCordLength);
 
 		// Material
 		//// Shock cord material:
 		MaterialPanel materialPanel = new MaterialPanel(component, document, Material.Type.LINE,
 				trans.get("ShockCordCfg.lbl.Shockcordmaterial"), null, "Material", order);
 		register(materialPanel);
-		panel.add(materialPanel, "spanx 4, wrap, gapright 40lp");
+		panel.add(materialPanel, "spanx 4, wrap, gapright 20lp");
 
 		/////  Right side
 		panel = new JPanel(new MigLayout("gap rel unrel, ins 0", "[][65lp::][30lp::]", ""));

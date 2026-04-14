@@ -36,8 +36,8 @@ import info.openrocket.core.rocketcomponent.position.AxialMethod;
 import info.openrocket.core.rocketcomponent.position.RadiusPositionable;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.BugException;
+import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.ORColor;
-import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.LineStyle;
 import info.openrocket.core.util.TextUtil;
 
@@ -180,12 +180,12 @@ public class RocketComponentSaver {
 			double rotation = decal.getRotation();
 			EdgeMode edgeMode = decal.getEdgeMode();
 			elements.add(OpenRocketSaver.INDENT + "<decal name=\"" + TextUtil.escapeXML(name) + "\" rotation=\"" + rotation + "\" edgemode=\"" + edgeMode.name() + "\">");
-			Coordinate center = decal.getCenter();
-			elements.add(OpenRocketSaver.INDENT.repeat(2) + "<center x=\"" + center.x + "\" y=\"" + center.y + "\"/>");
-			Coordinate offset = decal.getOffset();
-			elements.add(OpenRocketSaver.INDENT.repeat(2) + "<offset x=\"" + offset.x + "\" y=\"" + offset.y + "\"/>");
-			Coordinate scale = decal.getScale();
-			elements.add(OpenRocketSaver.INDENT.repeat(2) + "<scale x=\"" + scale.x + "\" y=\"" + scale.y + "\"/>");
+			CoordinateIF center = decal.getCenter();
+			elements.add(OpenRocketSaver.INDENT.repeat(2) + "<center x=\"" + center.getX() + "\" y=\"" + center.getY() + "\"/>");
+			CoordinateIF offset = decal.getOffset();
+			elements.add(OpenRocketSaver.INDENT.repeat(2) + "<offset x=\"" + offset.getX() + "\" y=\"" + offset.getY() + "\"/>");
+			CoordinateIF scale = decal.getScale();
+			elements.add(OpenRocketSaver.INDENT.repeat(2) + "<scale x=\"" + scale.getX() + "\" y=\"" + scale.getY() + "\"/>");
 			elements.add(OpenRocketSaver.INDENT + "</decal>");
 		}
 	}
@@ -214,11 +214,30 @@ public class RocketComponentSaver {
 		
 		String baseName = trans.getBaseText("material", mat.getName());
 		
-		return str + " density=\"" + mat.getDensity() + "\" group=\"" + mat.getGroup().getDatabaseString() + "\">" +
+		String result = str + " density=\"" + mat.getDensity() + "\"";
+		
+		// Add shear modulus when defined or explicitly set for a user-defined material.
+		double shearModulus = mat.getInPlaneShearModulus();
+		if (shearModulus != 0.0 || mat.isUserDefined()) {
+			result += " shearModulus=\"" + shearModulus + "\"";
+		}
+		
+		result += " group=\"" + mat.getGroup().getDatabaseString() + "\">" +
 				TextUtil.escapeXML(baseName) + "</" + tag + ">";
+		return result;
 	}
 	
 	
+	/**
+	 * Serialize motor mount configuration for a component acting as a motor mount.
+	 * <p>
+	 * For {@link info.openrocket.core.motor.ThrustCurveMotor} instances the motor metadata (manufacturer, digest,
+	 * designation, dimensions) is written to the XML. The actual thrust curve data is stored separately as .rse files
+	 * in the {@code thrustcurves/} directory of the .ork zip archive (see {@link GeneralRocketSaver}).
+	 *
+	 * @param mount motor mount component
+	 * @return XML element lines (empty if not a motor mount)
+	 */
 	protected final List<String> motorMountParams(MotorMount mount) {
 		if (!mount.isMotorMount())
 			return Collections.emptyList();
@@ -253,8 +272,7 @@ public class RocketComponentSaver {
 			if (motor.getMotorType() != Motor.Type.UNKNOWN) {
 				elements.add("    <type>" + motor.getMotorType().name().toLowerCase(Locale.ENGLISH) + "</type>");
 			}
-			if (motor instanceof ThrustCurveMotor) {
-				ThrustCurveMotor m = (ThrustCurveMotor) motor;
+			if (motor instanceof ThrustCurveMotor m) {
 				elements.add("    <manufacturer>" + TextUtil.escapeXML(m.getManufacturer().getSimpleName()) +
 						"</manufacturer>");
 				elements.add("    <digest>" + m.getDigest() + "</digest>");

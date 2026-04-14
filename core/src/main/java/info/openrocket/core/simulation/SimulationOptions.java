@@ -1,32 +1,42 @@
 package info.openrocket.core.simulation;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EventListener;
 import java.util.EventObject;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 
 import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
 import info.openrocket.core.models.wind.WindModel;
 import info.openrocket.core.models.wind.WindModelType;
 import info.openrocket.core.preferences.ApplicationPreferences;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import info.openrocket.core.aerodynamics.BarrowmanCalculator;
-import info.openrocket.core.masscalc.MassCalculator;
-import info.openrocket.core.models.atmosphere.AtmosphericModel;
-import info.openrocket.core.models.atmosphere.ExtendedISAModel;
-import info.openrocket.core.models.gravity.GravityModel;
-import info.openrocket.core.models.gravity.WGSGravityModel;
-import info.openrocket.core.models.wind.PinkNoiseWindModel;
-import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.ChangeSource;
 import info.openrocket.core.util.GeodeticComputationStrategy;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.StateChangeListener;
 import info.openrocket.core.util.WorldCoordinate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import info.openrocket.core.aerodynamics.BarrowmanCalculator;
+import info.openrocket.core.aerodynamics.BarrowmanDragCalculator;
+import info.openrocket.core.aerodynamics.BarrowmanStabilityCalculator;
+import info.openrocket.core.aerodynamics.LookupTableDragCalculator;
+import info.openrocket.core.aerodynamics.LookupTableStabilityCalculator;
+import info.openrocket.core.aerodynamics.lookup.CsvMachAoALookup;
+import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
+import info.openrocket.core.masscalc.MassCalculator;
+import info.openrocket.core.models.atmosphere.AtmosphericModel;
+import info.openrocket.core.models.atmosphere.ExtendedISAModel;
+import info.openrocket.core.models.gravity.ConstantGravityModel;
+import info.openrocket.core.models.gravity.GravityModel;
+import info.openrocket.core.models.gravity.GravityModelType;
+import info.openrocket.core.models.gravity.WGSGravityModel;
+import info.openrocket.core.models.wind.PinkNoiseWindModel;
+import info.openrocket.core.startup.Application;
 
 /**
  * A class holding simulation options in basic parameter form and which functions
@@ -46,6 +56,9 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	 * The ISA standard atmosphere.
 	 */
 	private static final AtmosphericModel ISA_ATMOSPHERIC_MODEL = new ExtendedISAModel();
+
+	private static final List<String> DRAG_VALUE_COLUMNS = List.of("cd");
+	private static final List<String> STABILITY_VALUE_COLUMNS = List.of("cn", "cm", "cp");
 
 	protected final ApplicationPreferences preferences = Application.getPreferences();
 
@@ -72,7 +85,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private boolean useISA = preferences.isISAAtmosphere();
 	private double launchTemperature = preferences.getLaunchTemperature();	// In Kelvin
 	private double launchPressure = preferences.getLaunchPressure();		// In Pascal
-	
+	private double launchRelativeHumidity = preferences.getLaunchRelativeHumidity();		//
+
 	private double timeStep = preferences.getTimeStep();
 	private double maxSimulationTime = preferences.getMaxSimulationTime();
 	private double maximumAngle = RK4SimulationStepper.RECOMMENDED_ANGLE_STEP;
@@ -84,6 +98,18 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private WindModelType windModelType = WindModelType.AVERAGE;
 	private PinkNoiseWindModel averageWindModel;
 	private MultiLevelPinkNoiseWindModel multiLevelPinkNoiseWindModel;
+
+	private GravityModelType gravityModelType = preferences.getGravityModel();
+	private double constantGravity = preferences.getConstantGravityValue();
+
+	private SimulationStepperMethod stepperMethodChoice = SimulationStepperMethod.RK4;
+
+	private Path dragLookupCsvPath;
+	private Path stabilityLookupCsvPath;
+	private MachAoALookup dragLookupTable;
+	private MachAoALookup stabilityLookupTable;
+	private List<String> dragLookupCsvRows;
+	private List<String> stabilityLookupCsvRows;
 
 	public SimulationOptions() {
 		averageWindModel = new PinkNoiseWindModel(randomSeed);
@@ -134,7 +160,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			} else {
 				windDirection = multiLevelPinkNoiseWindModel.getWindDirection(0, launchAltitude);
 			}
-			this.setLaunchRodDirection(windDirection);
+			return MathUtil.reduce2Pi(windDirection);
 		}
 		return launchRodDirection;
 	}
@@ -156,6 +182,28 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			this.windModelType = windModelType;
 			fireChangeEvent();
 		}
+	}
+
+	public GravityModelType getGravityModelType() {
+		return gravityModelType;
+	}
+
+	public void setGravityModelType(GravityModelType gravityModelType) {
+		if (this.gravityModelType != gravityModelType) {
+			this.gravityModelType = gravityModelType;
+			fireChangeEvent();
+		}
+	}
+
+	public double getConstantGravity() {
+		return constantGravity;
+	}
+
+	public void setConstantGravity(double constantGravity) {
+		if (MathUtil.equals(this.constantGravity, constantGravity))
+			return;
+		this.constantGravity = constantGravity;
+		fireChangeEvent();
 	}
 
 	public WindModel getWindModel() {
@@ -234,10 +282,11 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			return;
 		this.launchAltitude = MathUtil.min(altitude, ExtendedISAModel.getMaximumAllowedAltitude());
 
-		// Update the launch temperature and pressure if using ISA
+		// Update the launch temperature, pressure and humidity if using ISA
 		if (useISA) {
 			setLaunchTemperature(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getTemperature());
 			setLaunchPressure(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getPressure());
+			setLaunchRelativeHumidity(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getRelativeHumidity());
 		}
 
 		fireChangeEvent();
@@ -281,6 +330,20 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		fireChangeEvent();
 	}
 
+
+	public SimulationStepperMethod getSimulationStepperMethodChoice() {
+		return this.stepperMethodChoice;
+	}
+
+	public void setSimulationStepperMethodChoice(SimulationStepperMethod choice) {
+		if (choice == null) {
+			throw new IllegalArgumentException("choice cannot be null");
+		}
+		preferences.setSimulationStepperMethodChoice(choice);
+		this.stepperMethodChoice = choice;
+		fireChangeEvent();
+	}
+
 	public boolean isISAAtmosphere() {
 		return useISA;
 	}
@@ -290,10 +353,11 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			return;
 		useISA = isa;
 
-		// Update the launch temperature and pressure
+		// Update the launch temperature, pressure and humidity
 		if (isa) {
 			setLaunchTemperature(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getTemperature());
 			setLaunchPressure(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getPressure());
+			setLaunchRelativeHumidity(ISA_ATMOSPHERIC_MODEL.getConditions(getLaunchAltitude()).getRelativeHumidity());
 		}
 
 		fireChangeEvent();
@@ -321,6 +385,17 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		fireChangeEvent();
 	}
 
+	public double getLaunchRelativeHumidity() {
+		return launchRelativeHumidity;
+	}
+
+	public void setLaunchRelativeHumidity(double launchHumidity) {
+		if (MathUtil.equals(this.launchRelativeHumidity, launchHumidity))
+			return;
+		this.launchRelativeHumidity = launchHumidity;
+		fireChangeEvent();
+	}
+
 	/**
 	 * Returns an atmospheric model corresponding to the launch conditions. The
 	 * atmospheric models may be shared between different calls.
@@ -331,7 +406,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		if (useISA) {
 			return ISA_ATMOSPHERIC_MODEL;
 		}
-		return new ExtendedISAModel(getLaunchAltitude(), launchTemperature, launchPressure);
+		return new ExtendedISAModel(getLaunchAltitude(), launchTemperature, launchPressure, launchRelativeHumidity);
 	}
 
 	public double getTimeStep() {
@@ -366,6 +441,108 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			return;
 		this.maximumAngle = maximumAngle;
 		fireChangeEvent();
+	}
+
+	public Path getDragLookupCsvPath() {
+		return dragLookupCsvPath;
+	}
+
+	public MachAoALookup getDragLookupTable() {
+		return dragLookupTable;
+	}
+
+	public void setDragLookupCsvPath(Path csvPath) {
+		Path normalized = normalizePath(csvPath);
+		MachAoALookup table = normalized != null ? CsvMachAoALookup.fromCsv(normalized, DRAG_VALUE_COLUMNS) : null;
+		updateDragLookup(normalized, table);
+	}
+
+	public void setDragLookup(Path csvPath, MachAoALookup table) {
+		setDragLookup(csvPath, table, null);
+	}
+
+	public void setDragLookup(Path csvPath, MachAoALookup table, List<String> csvRows) {
+		Path normalized = normalizePath(csvPath);
+		if (normalized != null && table == null) {
+			throw new IllegalArgumentException("table must not be null when csvPath is provided");
+		}
+		this.dragLookupCsvRows = csvRows != null ? new ArrayList<>(csvRows) : null;
+		updateDragLookup(normalized, table);
+	}
+
+	public void clearDragLookup() {
+		this.dragLookupCsvRows = null;
+		updateDragLookup(null, null);
+	}
+
+	public boolean hasDragLookup() {
+		return dragLookupTable != null;
+	}
+
+	public List<String> getDragLookupCsvRows() {
+		return dragLookupCsvRows != null ? new ArrayList<>(dragLookupCsvRows) : null;
+	}
+
+	public Path getStabilityLookupCsvPath() {
+		return stabilityLookupCsvPath;
+	}
+
+	public MachAoALookup getStabilityLookupTable() {
+		return stabilityLookupTable;
+	}
+
+	public void setStabilityLookupCsvPath(Path csvPath) {
+		Path normalized = normalizePath(csvPath);
+		MachAoALookup table = normalized != null ? CsvMachAoALookup.fromCsv(normalized, STABILITY_VALUE_COLUMNS) : null;
+		updateStabilityLookup(normalized, table);
+	}
+
+	public void setStabilityLookup(Path csvPath, MachAoALookup table) {
+		setStabilityLookup(csvPath, table, null);
+	}
+
+	public void setStabilityLookup(Path csvPath, MachAoALookup table, List<String> csvRows) {
+		Path normalized = normalizePath(csvPath);
+		if (normalized != null && table == null) {
+			throw new IllegalArgumentException("table must not be null when csvPath is provided");
+		}
+		this.stabilityLookupCsvRows = csvRows != null ? new ArrayList<>(csvRows) : null;
+		updateStabilityLookup(normalized, table);
+	}
+
+	public void clearStabilityLookup() {
+		this.stabilityLookupCsvRows = null;
+		updateStabilityLookup(null, null);
+	}
+
+	public boolean hasStabilityLookup() {
+		return stabilityLookupTable != null;
+	}
+
+	public List<String> getStabilityLookupCsvRows() {
+		return stabilityLookupCsvRows != null ? new ArrayList<>(stabilityLookupCsvRows) : null;
+	}
+
+	private void updateDragLookup(Path path, MachAoALookup table) {
+		boolean changed = !Objects.equals(this.dragLookupCsvPath, path) || this.dragLookupTable != table;
+		this.dragLookupCsvPath = path;
+		this.dragLookupTable = table;
+		if (changed) {
+			fireChangeEvent();
+		}
+	}
+
+	private void updateStabilityLookup(Path path, MachAoALookup table) {
+		boolean changed = !Objects.equals(this.stabilityLookupCsvPath, path) || this.stabilityLookupTable != table;
+		this.stabilityLookupCsvPath = path;
+		this.stabilityLookupTable = table;
+		if (changed) {
+			fireChangeEvent();
+		}
+	}
+
+	private static Path normalizePath(Path path) {
+		return path == null ? null : path.toAbsolutePath().normalize();
 	}
 
 	public int getRandomSeed() {
@@ -405,6 +582,12 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.multiLevelPinkNoiseWindModel = this.multiLevelPinkNoiseWindModel.clone();
 
 			copy.windModelType = this.windModelType;
+			copy.dragLookupCsvPath = this.dragLookupCsvPath;
+			copy.dragLookupTable = this.dragLookupTable;
+			copy.dragLookupCsvRows = this.dragLookupCsvRows != null ? new ArrayList<>(this.dragLookupCsvRows) : null;
+			copy.stabilityLookupCsvPath = this.stabilityLookupCsvPath;
+			copy.stabilityLookupTable = this.stabilityLookupTable;
+			copy.stabilityLookupCsvRows = this.stabilityLookupCsvRows != null ? new ArrayList<>(this.stabilityLookupCsvRows) : null;
 
 			// Create a new list for listeners
 			copy.listeners = new ArrayList<>();
@@ -432,6 +615,15 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		if (!this.multiLevelPinkNoiseWindModel.equals(src.multiLevelPinkNoiseWindModel)) {
 			isChanged = true;
 			this.multiLevelPinkNoiseWindModel.loadFrom(src.multiLevelPinkNoiseWindModel);
+		}
+
+		if (this.gravityModelType != src.gravityModelType) {
+			isChanged = true;
+			this.gravityModelType = src.gravityModelType;
+		}
+		if (this.constantGravity != src.constantGravity) {
+			isChanged = true;
+			this.constantGravity = src.constantGravity;
 		}
 
 		if (this.launchAltitude != src.launchAltitude) {
@@ -474,6 +666,10 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.launchPressure = src.launchPressure;
 		}
+		if (this.launchRelativeHumidity != src.launchRelativeHumidity) {
+			isChanged = true;
+			this.launchRelativeHumidity = src.launchRelativeHumidity;
+		}
 		if (this.maximumAngle != src.maximumAngle) {
 			isChanged = true;
 			this.maximumAngle = src.maximumAngle;
@@ -490,6 +686,22 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		if (this.geodeticComputation != src.geodeticComputation) {
 			isChanged = true;
 			this.geodeticComputation = src.geodeticComputation;
+		}
+		if (this.stepperMethodChoice != src.stepperMethodChoice) {
+			isChanged = true;
+			this.stepperMethodChoice = src.stepperMethodChoice;
+		}
+
+		if (!Objects.equals(this.dragLookupCsvPath, src.dragLookupCsvPath) || this.dragLookupTable != src.dragLookupTable) {
+			isChanged = true;
+			this.dragLookupCsvPath = src.dragLookupCsvPath;
+			this.dragLookupTable = src.dragLookupTable;
+		}
+		if (!Objects.equals(this.stabilityLookupCsvPath, src.stabilityLookupCsvPath) ||
+				this.stabilityLookupTable != src.stabilityLookupTable) {
+			isChanged = true;
+			this.stabilityLookupCsvPath = src.stabilityLookupCsvPath;
+			this.stabilityLookupTable = src.stabilityLookupTable;
 		}
 
 		if (isChanged) {
@@ -514,6 +726,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.launchLatitude, o.launchLatitude) &&
 				MathUtil.equals(this.launchLongitude, o.launchLongitude) &&
 				MathUtil.equals(this.launchPressure, o.launchPressure) &&
+				MathUtil.equals(this.launchRelativeHumidity, o.launchRelativeHumidity) &&
 				MathUtil.equals(this.launchRodAngle, o.launchRodAngle) &&
 				MathUtil.equals(this.launchRodDirection, o.launchRodDirection) &&
 				MathUtil.equals(this.launchRodLength, o.launchRodLength) &&
@@ -521,9 +734,12 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.maximumAngle, o.maximumAngle) &&
 				MathUtil.equals(this.timeStep, o.timeStep) &&
 				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime)) &&
+				this.stepperMethodChoice == o.stepperMethodChoice &&
 				this.windModelType == o.windModelType &&
 				this.averageWindModel.equals(o.averageWindModel) &&
-				this.multiLevelPinkNoiseWindModel.equals(o.multiLevelPinkNoiseWindModel);
+				this.multiLevelPinkNoiseWindModel.equals(o.multiLevelPinkNoiseWindModel) &&
+				this.gravityModelType == o.gravityModelType &&
+				MathUtil.equals(this.constantGravity, o.constantGravity);
 	}
 
 	/**
@@ -575,10 +791,22 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		WindModel windModel = getWindModel().clone();
 		conditions.setWindModel(windModel);
 		conditions.setAtmosphericModel(getAtmosphericModel());
-		GravityModel gravityModel = new WGSGravityModel();
+
+		GravityModel gravityModel;
+		if (gravityModelType == GravityModelType.WGS) {
+			gravityModel = new WGSGravityModel();
+		} else if (gravityModelType == GravityModelType.CONSTANT) {
+			gravityModel = new ConstantGravityModel(constantGravity);
+		} else {
+			throw new IllegalArgumentException("Unknown gravity model type: " + gravityModelType);
+		}
 		conditions.setGravityModel(gravityModel);
 
-		conditions.setAerodynamicCalculator(new BarrowmanCalculator());
+		conditions.setAerodynamicCalculator(new BarrowmanCalculator(
+				stabilityLookupTable != null ? new LookupTableStabilityCalculator(stabilityLookupTable)
+						: new BarrowmanStabilityCalculator(),
+				dragLookupTable != null ? new LookupTableDragCalculator(dragLookupTable)
+						: new BarrowmanDragCalculator()));
 		conditions.setMassCalculator(new MassCalculator());
 
 		conditions.setTimeStep(getTimeStep());
@@ -605,9 +833,11 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    useISA:  %b\n", useISA))
 				.concat(String.format("    launchTemperature:  %f\n", launchTemperature))
 				.concat(String.format("    launchPressure:  %f\n", launchPressure))
+				.concat(String.format("    launchHumidity:  %f\n", launchRelativeHumidity))
 				.concat(String.format("    timeStep:  %f\n", timeStep))
 				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))
+				.concat(String.format("    stepperMethodChoice: %s\n", stepperMethodChoice))
 				.concat("]\n");
 	}
 

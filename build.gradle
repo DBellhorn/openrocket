@@ -1,9 +1,13 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 plugins {
-    id 'com.github.johnrengelman.shadow' version '8.1.1'
+    id 'com.gradleup.shadow' version '9.2.2'
     id 'java'
     id 'checkstyle'
-    id 'org.javamodularity.moduleplugin' version '1.8.15'
+    id 'org.javamodularity.moduleplugin' version '2.0.0'
     id 'application'
+    id 'jacoco'
+    id 'com.github.spotbugs' version '6.1.12' apply false
 }
 
 // Java settings
@@ -41,6 +45,21 @@ file('core/src/main/resources/build.properties').withInputStream { buildProperti
 group = 'info.openrocket'
 version = buildProperties['build.version']
 
+def baseManifestAttributes = [
+        'Description'          : 'Model-rocketry aerodynamics and trajectory simulation software',
+        'SplashScreen-Image'   : 'pix/splashscreen.png',
+        'Implementation-Version': buildProperties['build.version'],
+        'Implementation-Vendor': 'OpenRocket',
+        'Implementation-Vendor-Id': 'info.openrocket',
+        'Implementation-URL'   : 'https://openrocket.info/',
+        'Main-Class'           : application.mainClass.get(),
+]
+
+// JaCoCo configuration
+jacoco {
+    toolVersion = "0.8.11"
+}
+
 // Common project configuration
 allprojects {
     repositories {
@@ -52,7 +71,66 @@ allprojects {
 
 subprojects {
     apply plugin: 'java'
+
+    // Workaround for Windows "CreateProcess error=206" (command line too long).
+    //
+    // Windows limits CreateProcess to 32,767 chars. A JPMS build produces two sources of
+    // length: (a) -classpath with every JAR/directory, and (b) --module-path (added by the
+    // module plugin as a JVM arg) with every module JAR. Both must be shortened.
+    //
+    // Strategy:
+    //   (a) Classpath → manifest JAR: a tiny JAR whose Class-Path manifest attribute lists
+    //       every real entry. Directory entries need a trailing '/' or the JVM treats them as
+    //       ZIPs. Use setFrom() to mutate the FileCollection in-place (Gradle's worker
+    //       infrastructure holds a reference to the same object).
+    //   (b) JVM args → @argfile: Java 9+ supports "@/path/to/file" as a command-line
+    //       argument; the launcher expands it before parsing. Writing all JVM args to a temp
+    //       file and replacing jvmArgs with a single "@<path>" entry keeps that part short.
+    //
+    // The block MUST be registered before the module plugin is applied so that Gradle's
+    // LIFO doFirst ordering puts our action AFTER the module plugin's doFirst. The plugin
+    // then runs first (populating --module-path in jvmArgs), and our action runs second
+    // (moving everything to files).
+    if (System.properties['os.name'].toLowerCase().contains('windows')) {
+
+        Closure windowsLongCpFix = { task ->
+            doFirst {
+                // (a) Wrap classpath in a manifest JAR
+                def cpFiles = task.classpath.files
+                if (cpFiles) {
+                    def mf = new java.util.jar.Manifest()
+                    mf.mainAttributes.put(java.util.jar.Attributes.Name.MANIFEST_VERSION, '1.0')
+                    mf.mainAttributes.put(java.util.jar.Attributes.Name.CLASS_PATH,
+                        cpFiles.collect { f ->
+                            def url = f.toURI().toURL().toString()
+                            (f.isDirectory() && !url.endsWith('/')) ? url + '/' : url
+                        }.join(' '))
+                    def cpJar = new File(task.temporaryDir, 'classpath-manifest.jar')
+                    cpJar.parentFile.mkdirs()
+                    new java.util.jar.JarOutputStream(new java.io.FileOutputStream(cpJar), mf).close()
+                    task.classpath.setFrom(cpJar)
+                }
+
+                // (b) Move all JVM args into a @argfile so --module-path doesn't blow the limit.
+                //     One arg per line; quote entries that contain spaces.
+                def currentArgs = task.jvmArgs as List<String>
+                if (currentArgs) {
+                    def argFile = new File(task.temporaryDir, 'jvm.argfile')
+                    argFile.text = currentArgs.collect { arg ->
+                        arg.contains(' ') ? '"' + arg.replace('\\', '\\\\').replace('"', '\\"') + '"' : arg
+                    }.join('\n')
+                    task.jvmArgs = ['@' + argFile.absolutePath.replace('\\', '/')]
+                }
+            }
+        }
+
+        tasks.withType(Test).configureEach(windowsLongCpFix)
+        tasks.withType(JavaExec).configureEach(windowsLongCpFix)
+    }
+
     apply plugin: "org.javamodularity.moduleplugin"
+    apply plugin: 'jacoco'
+    apply plugin: 'com.github.spotbugs'
 
     // Configure the gradle-modules-plugin
     modularity {
@@ -62,6 +140,7 @@ subprojects {
 
     test {
         useJUnitPlatform()
+        finalizedBy jacocoTestReport
 
         testLogging {
             events 'PASSED', 'FAILED', 'SKIPPED', 'STANDARD_OUT'
@@ -71,18 +150,53 @@ subprojects {
         }
     }
 
+    jacocoTestReport {
+        dependsOn test
+        reports {
+            xml.required = true
+            html.required = true
+            csv.required = false
+        }
+    }
+
+    spotbugs {
+        effort = com.github.spotbugs.snom.Effort.valueOf('MAX')
+        reportLevel = com.github.spotbugs.snom.Confidence.valueOf('HIGH')
+        excludeFilter = rootProject.file('config/spotbugs/excludeFilter.xml')
+    }
+
+    spotbugsMain {
+        reports {
+            html.required = true
+            xml.required = false
+        }
+    }
+
+    spotbugsTest.enabled = false
+
+    // Always evaluate coverage as part of the verification lifecycle
+    tasks.named('check') {
+        dependsOn jacocoTestCoverageVerification
+        dependsOn spotbugsMain
+    }
+
     // Common dependencies
     dependencies {
-        implementation group: 'jakarta.xml.bind', name: 'jakarta.xml.bind-api', version: '4.0.2'
+        implementation 'jakarta.xml.bind:jakarta.xml.bind-api:4.0.4'
 
-        testImplementation group: 'org.junit.platform', name: 'junit-platform-runner', version: '1.10.2'
-        testImplementation group: 'org.junit.platform', name: 'junit-platform-launcher', version: '1.10.2'
-        testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: '5.10.0'
-        testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-engine', version: '5.10.0'
-        testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-params', version: '5.10.0'
-        testImplementation group: 'org.mockito', name: 'mockito-core', version: '5.10.0'
-        testImplementation group: 'org.mockito', name: 'mockito-junit-jupiter', version: '5.10.0'
+        testImplementation 'org.junit.platform:junit-platform-runner:1.14.1'
+        testImplementation 'org.junit.platform:junit-platform-launcher:6.0.1'
+        testImplementation 'org.junit.jupiter:junit-jupiter-api:6.0.1'
+        testImplementation 'org.junit.jupiter:junit-jupiter-engine:6.0.1'
+        testImplementation 'org.junit.jupiter:junit-jupiter-params:6.0.1'
+
+        testImplementation 'org.mockito:mockito-core:5.10.0'
+        testImplementation 'org.mockito:mockito-junit-jupiter:5.10.0'
     }
+}
+
+tasks.named('check') {
+    dependsOn(subprojects.collect { it.tasks.named('check') })
 }
 
 //tasks.register('serializeEngines') {
@@ -91,21 +205,10 @@ subprojects {
 
 // JAR config
 jar {
-    archiveBaseName.set('OpenRocket')
+    archiveBaseName = 'OpenRocket'
 
     manifest {
-        attributes (
-            'Description': 'Model-rocketry aerodynamics and trajectory simulation software',
-            'SplashScreen-Image': 'pix/splashscreen.png',
-
-            // Versioning
-            'Implementation-Version': buildProperties['build.version'],
-
-            // Vendor Details
-            'Implementation-Vendor': 'OpenRocket',
-            'Implementation-Vendor-Id': 'info.openrocket',
-            'Implementation-URL': 'https://openrocket.info/',
-        )
+        attributes(baseManifestAttributes)
     }
 }
 
@@ -115,31 +218,47 @@ dependencies {
     implementation(project(path: ":swing", configuration: "default"))
 }
 
-shadowJar {
-    archiveBaseName.set('OpenRocket')
-    archiveVersion.set(buildProperties['build.version'])
-    archiveClassifier.set('')
+tasks.named('shadowJar', ShadowJar) {
+    dependsOn(':core:processResources')
+    archiveBaseName = 'OpenRocket'
+    archiveVersion = '' + version
+    archiveClassifier = ''
     dependsOn(distTar, distZip)
 
     manifest {
-        from jar.manifest
+        attributes(baseManifestAttributes)
         attributes(
-                'Description': 'Model-rocketry aerodynamics and trajectory simulation software',
-                'SplashScreen-Image': 'pix/splashscreen.png',
-                'Implementation-Version': buildProperties['build.version'],
-                'Implementation-Vendor': 'OpenRocket',
-                'Implementation-Vendor-Id': 'info.openrocket',
-                'Implementation-URL': 'https://openrocket.info/',
                 'Add-Exports': 'java.base/java.lang=ALL-UNNAMED java.desktop/sun.awt=ALL-UNNAMED java.desktop/sun.java2d=ALL-UNNAMED',
                 'JVM-Args': '-Dapple.awt.application.appearance=system -Dsun.java2d.noddraw=true -Dsun.java2d.d3d=false -Dsun.java2d.ddforcevram=true -Dsun.java2d.ddblit=false -Dswing.useflipBufferStrategy=True'
         )
     }
 }
 
+// jacoco aggregate report for all subprojects
+tasks.register('jacocoRootReport', JacocoReport) {
+    group = 'verification'
+    description = 'Generates an aggregate report from all subprojects'
+
+    dependsOn(tasks.named('test'))
+    dependsOn(subprojects.jacocoTestReport)
+
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+
+    // Collect execution data from all subprojects
+    executionData fileTree(project.rootDir.absolutePath).include("**/build/jacoco/*.exec")
+
+    // Collect class directories from all subprojects
+    classDirectories.setFrom(subprojects.sourceSets.main.output.classesDirs)
+}
+
 // Package the application for distribution.
 tasks.register('dist') {
     group = 'info.openrocket'
-    dependsOn 'shadowJar'
+    dependsOn 'check', 'shadowJar'
     doLast {
         println "Completed the deployable jar in './build/libs"
     }

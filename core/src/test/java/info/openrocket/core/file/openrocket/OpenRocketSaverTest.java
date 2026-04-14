@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.List;
 
 import info.openrocket.core.ServicesForTesting;
 import info.openrocket.core.database.ComponentPresetDao;
@@ -25,6 +26,7 @@ import info.openrocket.core.document.OpenRocketDocumentFactory;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.document.StorageOptions;
 import info.openrocket.core.file.GeneralRocketLoader;
+import info.openrocket.core.file.GeneralRocketSaver;
 import info.openrocket.core.file.RocketLoadException;
 import info.openrocket.core.file.motor.GeneralMotorLoader;
 import info.openrocket.core.l10n.DebugTranslator;
@@ -33,15 +35,21 @@ import info.openrocket.core.logging.ErrorSet;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.motor.Manufacturer;
 import info.openrocket.core.motor.Motor;
+import info.openrocket.core.motor.MotorConfiguration;
 import info.openrocket.core.motor.ThrustCurveMotor;
 import info.openrocket.core.plugin.PluginModule;
+import info.openrocket.core.rocketcomponent.AxialStage;
 import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
+import info.openrocket.core.rocketcomponent.FlightConfigurationId;
+import info.openrocket.core.rocketcomponent.InnerTube;
+import info.openrocket.core.rocketcomponent.MotorMount;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.simulation.extension.impl.ScriptingExtension;
 import info.openrocket.core.simulation.extension.impl.ScriptingUtil;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.TestRockets;
 
 import org.junit.jupiter.api.AfterEach;
@@ -326,15 +334,129 @@ public class OpenRocketSaverTest {
 		assertEquals(Simulation.Status.LOADED, rocketDocLoaded.getSimulations().get(2).getStatus());
 		assertEquals(Simulation.Status.OUTDATED, rocketDocLoaded.getSimulations().get(3).getStatus());
 	}
+
+	@Test
+	public void testAtmosphereHumiditySavedAndLoaded() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
+
+		Simulation sim = new Simulation(rocket);
+		sim.getOptions().setISAAtmosphere(false);
+		sim.getOptions().setLaunchTemperature(280.0);
+		sim.getOptions().setLaunchPressure(95000.0);
+		sim.getOptions().setLaunchRelativeHumidity(0.55);
+		sim.setFlightConfigurationId(TestRockets.TEST_FCID_0);
+		rocketDoc.addSimulation(sim);
+
+		File file = saveRocket(rocketDoc, new StorageOptions());
+		OpenRocketDocument rocketDocLoaded = loadRocket(file.getPath());
+
+		assertEquals(1, rocketDocLoaded.getSimulations().size());
+		Simulation loadedSim = rocketDocLoaded.getSimulations().get(0);
+		assertFalse(loadedSim.getOptions().isISAAtmosphere());
+		assertEquals(0.55, loadedSim.getOptions().getLaunchRelativeHumidity(), 1e-12);
+		assertEquals(280.0, loadedSim.getOptions().getLaunchTemperature(), 1e-12);
+		assertEquals(95000.0, loadedSim.getOptions().getLaunchPressure(), 1e-9);
+	}
 	
 	////////////////////////////////
-	// Tests for File Version 1.10 //
+	// Tests for File Version 1.11 //
 	////////////////////////////////
 	
 	@Test
-	public void testFileVersion110_withSimulationExtension() {
+	public void testFileVersion111_withSimulationExtension() {
 		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v110_withSimulationExtension(SIMULATION_EXTENSION_SCRIPT);
-		assertEquals(110, getCalculatedFileVersion(rocketDoc));
+		assertEquals(111, getCalculatedFileVersion(rocketDoc));
+	}
+
+	@Test
+	public void testCustomMotorEmbeddedAsRseInOrk() throws IOException {
+		Rocket rocket = new Rocket();
+		rocket.setName("embedded_motor_test");
+
+		AxialStage stage = new AxialStage();
+		stage.setName("Stage1");
+		rocket.addChild(stage);
+
+		BodyTube bodyTube = new BodyTube(12, 1, 0.05);
+		stage.addChild(bodyTube);
+
+		InnerTube innerTube = new InnerTube();
+		bodyTube.addChild(innerTube);
+
+		FlightConfigurationId fcid = new FlightConfigurationId();
+		rocket.createFlightConfiguration(fcid);
+		rocket.setSelectedConfiguration(fcid);
+
+		ThrustCurveMotor motor = new ThrustCurveMotor.Builder()
+				.setManufacturer(Manufacturer.getManufacturer("Custom"))
+				.setDesignation("F12X")
+				.setDescription("Desc")
+				.setCaseInfo("info")
+				.setMotorType(Motor.Type.UNKNOWN)
+				.setStandardDelays(new double[] { 0, 3, 5, Motor.PLUGGED_DELAY })
+				.setDiameter(0.024)
+				.setLength(0.07)
+				.setTimePoints(new double[] { 0, 1, 2 })
+				.setThrustPoints(new double[] { 0, 1, 0 })
+				.setCGPoints(new CoordinateIF[] { Coordinate.NUL, Coordinate.NUL, Coordinate.NUL })
+				.setDigest("digestA")
+				.build();
+
+		MotorConfiguration motorConfig = new MotorConfiguration(innerTube, fcid);
+		motorConfig.setMotor(motor);
+		motorConfig.setEjectionDelay(5);
+		innerTube.setMotorConfig(motorConfig, fcid);
+
+		rocket.enableEvents();
+		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
+		StorageOptions options = new StorageOptions();
+		options.setSaveSimulationData(false);
+
+		// Use GeneralRocketSaver to get a proper zip file with thrustcurves/ directory
+		File file = saveRocketAsZip(rocketDoc, options);
+
+		// Verify the .ork zip contains a thrustcurves/<digest>.rse entry
+		boolean foundRseEntry = false;
+		try (java.util.zip.ZipFile zipFile = new java.util.zip.ZipFile(file)) {
+			java.util.zip.ZipEntry rseEntry = zipFile.getEntry("thrustcurves/digestA.rse");
+			assertNotNull(rseEntry, "Expected thrustcurves/digestA.rse entry in .ork zip");
+			foundRseEntry = true;
+
+			// Verify the .rse file is parseable
+			try (InputStream rseStream = zipFile.getInputStream(rseEntry)) {
+				GeneralMotorLoader loader = new GeneralMotorLoader();
+				List<ThrustCurveMotor.Builder> motors = loader.load(rseStream, "digestA.rse");
+				assertFalse(motors.isEmpty(), "Expected at least one motor from .rse file");
+			}
+		}
+		assertTrue(foundRseEntry);
+
+		// Verify the motor round-trips through save/load
+		OpenRocketDocument rocketDocLoaded = loadRocket(file.getPath());
+		Rocket loadedRocket = rocketDocLoaded.getRocket();
+		FlightConfigurationId loadedFcid = loadedRocket.getSelectedConfiguration().getFlightConfigurationID();
+
+		MotorMount motorMount = null;
+		for (java.util.Iterator<info.openrocket.core.rocketcomponent.RocketComponent> it = loadedRocket.iterator(true); it.hasNext();) {
+			info.openrocket.core.rocketcomponent.RocketComponent c = it.next();
+			if (c instanceof MotorMount mount && mount.isMotorMount()) {
+				motorMount = mount;
+				break;
+			}
+		}
+		assertNotNull(motorMount, "Expected a motor mount in the loaded rocket");
+
+		MotorConfiguration loadedMotorConfig = motorMount.getMotorConfig(loadedFcid);
+		assertNotNull(loadedMotorConfig);
+		Motor loadedMotor = loadedMotorConfig.getMotor();
+		assertNotNull(loadedMotor, "Expected motor to be loaded from embedded .rse file");
+		assertTrue(loadedMotor instanceof ThrustCurveMotor);
+
+		// Verify thrust curve data round-tripped correctly
+		ThrustCurveMotor loadedTCM = (ThrustCurveMotor) loadedMotor;
+		assertEquals(motor.getDesignation(), loadedTCM.getDesignation());
+		assertEquals(3, loadedTCM.getTimePoints().length);
 	}
 	
 
@@ -360,6 +482,18 @@ public class OpenRocketSaverTest {
 		return rocketDoc;
 	}
 	
+	private File saveRocketAsZip(OpenRocketDocument rocketDoc, StorageOptions options) {
+		File file = null;
+		try {
+			file = File.createTempFile(TMP_DIR.getName(), ".ork");
+			GeneralRocketSaver generalSaver = new GeneralRocketSaver();
+			generalSaver.save(file, rocketDoc, options);
+		} catch (Exception e) {
+			fail("Exception saving temp zip file: " + e.getMessage());
+		}
+		return file;
+	}
+
 	private File saveRocket(OpenRocketDocument rocketDoc, StorageOptions options) {
 		File file = null;
 		OutputStream out = null;
@@ -427,7 +561,7 @@ public class OpenRocketSaverTest {
 					.setLength(0.07)
 					.setTimePoints(new double[] { 0, 1, 2 })
 					.setThrustPoints(new double[] { 0, 1, 0 })
-					.setCGPoints(new Coordinate[] { Coordinate.NUL, Coordinate.NUL, Coordinate.NUL })
+					.setCGPoints(new CoordinateIF[] { Coordinate.NUL, Coordinate.NUL, Coordinate.NUL })
 					.setDigest("digestA")
 					.build());
 

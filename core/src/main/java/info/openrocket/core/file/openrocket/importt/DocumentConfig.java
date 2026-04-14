@@ -53,7 +53,8 @@ import info.openrocket.core.util.Reflection;
 class DocumentConfig {
 	
 	/* Remember to update OpenRocketSaver as well! */
-	public static final String[] SUPPORTED_VERSIONS = { "1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10" };
+	public static final String[] SUPPORTED_VERSIONS = { "1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
+			"1.9", "1.10" , "1.11"};
 	
 	/**
 	 * Divisor used in converting an integer version to the point-represented version.
@@ -428,7 +429,9 @@ class DocumentConfig {
 
 		// ShockCord
 		setters.put("ShockCord:cordlength", new DoubleSetter(
-				Reflection.findMethod(ShockCord.class, "setCordLength", double.class)));
+				Reflection.findMethod(ShockCord.class, "setCordLength", double.class),
+				"auto",
+				Reflection.findMethod(ShockCord.class, "setCordLengthAutomatic", boolean.class)));
 		setters.put("ShockCord:material", new MaterialSetter(
 				Reflection.findMethod(ShockCord.class, "setMaterial", Material.class),
 				Material.Type.LINE));
@@ -458,7 +461,9 @@ class DocumentConfig {
 		setters.put("Parachute:linecount", new IntSetter(
 				Reflection.findMethod(Parachute.class, "setLineCount", int.class)));
 		setters.put("Parachute:linelength", new DoubleSetter(
-				Reflection.findMethod(Parachute.class, "setLineLength", double.class)));
+				Reflection.findMethod(Parachute.class, "setLineLength", double.class),
+				"auto",
+				Reflection.findMethod(Parachute.class, "setLineLengthAutomatic", boolean.class)));
 		setters.put("Parachute:linematerial", new MaterialSetter(
 				Reflection.findMethod(Parachute.class, "setLineMaterial", Material.class),
 				Material.Type.LINE));

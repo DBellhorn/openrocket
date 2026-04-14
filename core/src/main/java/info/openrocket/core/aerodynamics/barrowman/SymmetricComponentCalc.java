@@ -13,6 +13,7 @@ import info.openrocket.core.rocketcomponent.SymmetricComponent;
 import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.LinearInterpolator;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.PolyInterpolator;
@@ -85,7 +86,11 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 			frontalArea = Math.abs(Math.PI * (foreRadius * foreRadius - aftRadius * aftRadius));
 
 			double r = component.getRadius(0.99 * length);
-			sinphi = (aftRadius - r) / MathUtil.hypot(aftRadius - r, 0.01 * length);
+			if (shape.equals(Transition.Shape.OGIVE) && param == 1.0) {
+				sinphi = 0; // special case: tangent ogive
+			} else {
+				sinphi = (aftRadius - r) / MathUtil.hypot(aftRadius - r, 0.01 * length);
+			}
 		} else {
 			throw new UnsupportedOperationException("Unknown component type " +
 					component.getComponentName());
@@ -124,13 +129,26 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 				final double A0 = Math.PI * pow2(r0);
 				final double A1 = Math.PI * pow2(r1);
 
+				// This calculation of CNa is based on slender body theory,
+				// which at first glance should not be appropriate
+				// particularly for boattails which one would intuitively
+				// expect would have less effect on stability than
+				// predicted here. However, replacing this code with
+				// the wind tunnel based data from Moore, F. G. and
+				// L. Y. Moore, "Improved Aerodynamics for Configurations
+				// With Boattails", Journal of Spacecraft and Rockets 45(2),
+				// March-April 2008 made almost no difference in CP
+				// calculations.  A short boattail added to the "simple
+				// model rocket" example shows a 1 mm difference between
+				// this code and that result, at the cost of a substantial
+				// increase in code complexity.
 				cnaCache = 2 * (A1 - A0);
 				// System.out.println("cnaCache = " + cnaCache);
 				cpCache = (length * A1 - fullVolume) / (A1 - A0);
 			}
 		}
 
-		Coordinate cp;
+		CoordinateIF cp;
 
 		// If fore == aft, only body lift is encountered
 		if (isTube) {
@@ -141,8 +159,8 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 		}
 
 		forces.setCP(cp);
-		forces.setCN(forces.getCP().weight * conditions.getAOA());
-		forces.setCm(forces.getCN() * cp.x / conditions.getRefLength());
+		forces.setCN(forces.getCP().getWeight() * conditions.getAOA());
+		forces.setCm(forces.getCN() * cp.getX() / conditions.getRefLength());
 		forces.setCroll(0);
 		forces.setCrollDamp(0);
 		forces.setCrollForce(0);
@@ -159,7 +177,7 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	/**
 	 * Calculate the body lift effect according to Galejs.
 	 */
-	protected Coordinate getLiftCP(FlightConditions conditions, WarningSet warnings) {
+	protected CoordinateIF getLiftCP(FlightConditions conditions, WarningSet warnings) {
 
 		/*
 		 * Without this extra multiplier the rocket may become unstable at apogee
@@ -222,16 +240,15 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 
 	/*
 	 * Experimental values of pressure drag for different nose cone shapes with a
-	 * fineness
-	 * ratio of 3. The data is taken from 'Collection of Zero-Lift Drag Data on
-	 * Bodies
-	 * of Revolution from Free-Flight Investigations', NASA TR-R-100, NTRS
+	 * fineness ratio of 3. The data is taken from 'Collection of Zero-Lift Drag Data on
+	 * Bodies of Revolution from Free-Flight Investigations', NASA TR-R-100, NTRS
 	 * 19630004995,
 	 * page 16.
 	 * 
 	 * This data is extrapolated for other fineness ratios.
 	 */
 
+	// Format: array of {Mach numbers}, array of {Cd values}
 	private static final LinearInterpolator ellipsoidInterpolator = new LinearInterpolator(
 			new double[] { 1.2, 1.25, 1.3, 1.4, 1.6, 2.0, 2.4 },
 			new double[] { 0.110, 0.128, 0.140, 0.148, 0.152, 0.159, 0.162 /* constant */ });
@@ -293,11 +310,9 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 
 		/*
 		 * Take into account nose cone shape. Conical and ogive generate the
-		 * interpolator
-		 * directly. Others store a interpolator for fineness ratio 3 into int1, or
-		 * for parameterized shapes store the bounding fineness ratio 3 interpolators
-		 * into
-		 * int1 and int2 and set 0 <= p <= 1 according to the bounds.
+		 * interpolator directly. Others store a interpolator for fineness ratio 3 into int1,
+		 * or for parameterized shapes store the bounding fineness ratio 3 interpolators
+		 * into int1 and int2 and set 0 <= p <= 1 according to the bounds.
 		 */
 		switch (shape) {
 			case CONICAL:
@@ -415,8 +430,7 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	private static final PolyInterpolator conicalPolyInterpolator = new PolyInterpolator(new double[] { 1.0, 1.3 },
 			new double[] { 1.0, 1.3 });
 
-	private static LinearInterpolator calculateOgiveNoseInterpolator(double param,
-			double sinphi) {
+	private static LinearInterpolator calculateOgiveNoseInterpolator(double param, double sinphi) {
 		LinearInterpolator interpolator = new LinearInterpolator();
 
 		// In the range M = 1 ... 1.3 use polynomial approximation

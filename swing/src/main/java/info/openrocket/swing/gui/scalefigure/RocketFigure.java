@@ -18,9 +18,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.function.Consumer;
+
+import javax.swing.SwingUtilities;
 
 import info.openrocket.core.rocketcomponent.AxialStage;
 import info.openrocket.core.rocketcomponent.ParallelStage;
@@ -36,7 +41,7 @@ import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.BoundingBox;
 import info.openrocket.core.util.BugException;
-import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.LineStyle;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.Transformation;
@@ -101,6 +106,8 @@ public class RocketFigure extends AbstractScaleFigure {
 	
 	private final ArrayList<FigureElement> relativeExtra = new ArrayList<>();
 	private final ArrayList<FigureElement> absoluteExtra = new ArrayList<>();
+	/** Elements painted last, on top of everything (including absoluteExtra), using the rocket transform. */
+	private final ArrayList<FigureElement> relativeTopExtra = new ArrayList<>();
 
 	private static Color motorFillColor;
 	private static Color motorBorderColor;
@@ -129,8 +136,8 @@ public class RocketFigure extends AbstractScaleFigure {
 	}
 
 	public static void updateColors() {
-		motorFillColor = GUIUtil.getUITheme().getMotorFillColor();
-		motorBorderColor = GUIUtil.getUITheme().getMotorBorderColor();
+		motorFillColor = UITheme.getColor(UITheme.Keys.MOTOR_FILL);
+		motorBorderColor = UITheme.getColor(UITheme.Keys.MOTOR_BORDER);
 	}
 
 	public Point getAutoZoomPoint(){
@@ -195,6 +202,10 @@ public class RocketFigure extends AbstractScaleFigure {
 		this.currentViewType = type;
 		updateFigure();
         fireChangeEvent();
+		
+		// Trigger a repaint after view type change is complete to ensure getVisibleRect() returns correct values
+		// This fixes issues where paint() is called before the visible rectangle is properly updated
+		SwingUtilities.invokeLater(this::repaint);
 	}
 		
 	
@@ -221,6 +232,19 @@ public class RocketFigure extends AbstractScaleFigure {
 	
 	public void clearAbsoluteExtra() {
 		absoluteExtra.clear();
+	}
+
+
+	public void addRelativeTopExtra(FigureElement p) {
+		relativeTopExtra.add(p);
+	}
+
+	public void removeRelativeTopExtra(FigureElement p) {
+		relativeTopExtra.remove(p);
+	}
+
+	public void clearRelativeTopExtra() {
+		relativeTopExtra.clear();
 	}
 	
 	
@@ -256,7 +280,8 @@ public class RocketFigure extends AbstractScaleFigure {
         updateShapes(figureShapes);
 
 		g2.transform(projection);
-		
+		AffineTransform rocketTransform = g2.getTransform();
+
 		// Set rendering hints appropriately
 		g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
 				RenderingHints.VALUE_STROKE_NORMALIZE);
@@ -293,7 +318,7 @@ public class RocketFigure extends AbstractScaleFigure {
 			
 			LineStyle style = rcs.lineStyle;
 			if (style == null)
-				style = Application.getPreferences().getDefaultLineStyle(c.getClass());
+				style = UITheme.getDefaultLineStyle(c.getClass());
 			
 			float[] dashes = style.getDashes();
 			for (int j = 0; j < dashes.length; j++) {
@@ -324,9 +349,11 @@ public class RocketFigure extends AbstractScaleFigure {
 
 
 		// Draw relative extras
+		// Get visible rectangle for out-of-view indicators
+		Rectangle visibleRect = this.getVisibleRect();
 		if (drawCarets) {
 			for (FigureElement e : relativeExtra) {
-				e.paint(g2, scale);
+				e.paint(g2, scale, visibleRect);
 			}
 		}
 
@@ -334,11 +361,19 @@ public class RocketFigure extends AbstractScaleFigure {
 		// Draw absolute extras
 		g2.setTransform(baseTransform);
 		Rectangle rect = this.getVisibleRect();
-		
+
 		for (FigureElement e : absoluteExtra) {
 			e.paint(g2, 1.0, rect);
 		}
-		
+
+		// Draw relative top extras (on top of everything, using the rocket transform)
+		if (drawCarets && !relativeTopExtra.isEmpty()) {
+			g2.setTransform(rocketTransform);
+			for (FigureElement e : relativeTopExtra) {
+				e.paint(g2, scale, visibleRect);
+			}
+		}
+
 	}
 
 	private void drawMotors(Graphics2D g2) {
@@ -358,11 +393,11 @@ public class RocketFigure extends AbstractScaleFigure {
 
 			// <component>.getComponentLocations() will return all the parent instances of this owning component,  AND all of its own instances as well.
 			// so, just draw a motor once for each Coordinate returned...
-			Coordinate[] mountLocations = mount.getComponentLocations();
+			CoordinateIF[] mountLocations = mount.getComponentLocations();
 
-			Coordinate motorPosition = mount.getMotorPosition(config.getId());
-			for (Coordinate curMountLocation : mountLocations) {
-				Coordinate curMotorLocation = curMountLocation.add(motorPosition);
+			CoordinateIF motorPosition = mount.getMotorPosition(config.getId());
+			for (CoordinateIF curMountLocation : mountLocations) {
+				CoordinateIF curMotorLocation = curMountLocation.add(motorPosition);
 
 				// rotate by figure's axial rotation:
 				curMotorLocation = getFigureRotation().transform(curMotorLocation);
@@ -370,13 +405,13 @@ public class RocketFigure extends AbstractScaleFigure {
 				{
 					Shape s;
 					if (currentViewType == RocketPanel.VIEW_TYPE.SideView || currentViewType == RocketPanel.VIEW_TYPE.TopView) {
-						s = new Rectangle2D.Double(curMotorLocation.x,
-								(curMotorLocation.y - motorRadius),
+						s = new Rectangle2D.Double(curMotorLocation.getX(),
+								(curMotorLocation.getY() - motorRadius),
 								motorLength,
 								2 * motorRadius);
 					} else {
-						s = new Ellipse2D.Double((curMotorLocation.z - motorRadius),
-								(curMotorLocation.y - motorRadius),
+						s = new Ellipse2D.Double((curMotorLocation.getZ() - motorRadius),
+								(curMotorLocation.getY() - motorRadius),
 								2 * motorRadius,
 								2 * motorRadius);
 					}
@@ -419,6 +454,26 @@ public class RocketFigure extends AbstractScaleFigure {
 		return l.toArray(new RocketComponent[0]);
 	}
 	
+	/**
+	 * Convert screen coordinates to model coordinates.
+	 * 
+	 * @param screenX the x coordinate in screen pixels
+	 * @param screenY the y coordinate in screen pixels
+	 * @return the point in model coordinates, or null if transformation fails
+	 */
+	public Point2D.Double screenToModel(double screenX, double screenY) {
+		Point2D.Double p = new Point2D.Double(screenX, screenY);
+		try {
+			if (projection != null) {
+				projection.inverseTransform(p, p);
+				return p;
+			}
+		} catch (NoninvertibleTransformException e) {
+			// Ignore
+		}
+		return null;
+	}
+	
 	private void updateShapes(PriorityQueue<RocketComponentShapes> allShapes) {
 		// source input
 		final FlightConfiguration config = rocket.getSelectedConfiguration();
@@ -455,6 +510,53 @@ public class RocketFigure extends AbstractScaleFigure {
 				allShapes = addThisShape(allShapes, this.currentViewType, comp, currentTransform);
 			}
 		}
+	}
+
+	/**
+	 * Get component transformations for all visible components.
+	 * Used for calculating snap targets.
+	 *
+	 * @return map of component to list of transformations (one per instance)
+	 */
+	public Map<RocketComponent, List<Transformation>> getComponentTransformations() {
+		Map<RocketComponent, List<Transformation>> result = new java.util.HashMap<>();
+		final FlightConfiguration config = rocket.getSelectedConfiguration();
+		
+		Consumer<Set<Entry<RocketComponent, ArrayList<InstanceContext>>>> addTransforms = entries -> {
+			for (Entry<RocketComponent, ArrayList<InstanceContext>> entry : entries) {
+				final RocketComponent comp = entry.getKey();
+				if (!comp.isVisible()) {
+					continue;
+				}
+				
+				// Only include pod sets and boosters when they are selected
+				if (preferences.isShowMarkers() && (comp instanceof PodSet || comp instanceof ParallelStage)) {
+					boolean selected = false;
+					for (RocketComponent component : selection) {
+						if (comp == component) {
+							selected = true;
+							break;
+						}
+					}
+					if (!selected) continue;
+				}
+				
+				final ArrayList<InstanceContext> contextList = entry.getValue();
+				List<Transformation> transforms = new ArrayList<>();
+				for (InstanceContext context : contextList) {
+					final Transformation currentTransform = getFigureRotation().applyTransformation(context.transform);
+					transforms.add(currentTransform);
+				}
+				if (!transforms.isEmpty()) {
+					result.put(comp, transforms);
+				}
+			}
+		};
+		
+		addTransforms.accept(config.getActiveInstances().entrySet());
+		addTransforms.accept(config.getExtraRenderInstances().entrySet());
+		
+		return result;
 	}
 
 	/**
@@ -530,13 +632,13 @@ public class RocketFigure extends AbstractScaleFigure {
 		
 		final BoundingBox bounds = rocket.getSelectedConfiguration().getBoundingBox();
 		
-		final double maxR = Math.max( Math.hypot(bounds.min.y, bounds.min.z),
-									  Math.hypot(bounds.max.y, bounds.max.z));
+		final double maxR = Math.max( Math.hypot(bounds.min.getY(), bounds.min.getZ()),
+									  Math.hypot(bounds.max.getY(), bounds.max.getZ()));
 
 		switch (currentViewType) {
 			case SideView:
 			case TopView:
-				subjectBounds_m = new Rectangle2D.Double(bounds.min.x, -maxR, bounds.span().x, 2 * maxR);
+				subjectBounds_m = new Rectangle2D.Double(bounds.min.getX(), -maxR, bounds.span().getX(), 2 * maxR);
 				break;
 			case BackView:
 				subjectBounds_m = new Rectangle2D.Double(-maxR, -maxR, 2 * maxR, 2 * maxR);

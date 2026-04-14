@@ -13,6 +13,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1152,7 +1153,7 @@ public class GeneralOptimizationDialog extends JDialog {
 		
 		JFileChooser chooser = new SaveFileChooser();
 		chooser.setFileFilter(FileHelper.CSV_FILTER);
-		chooser.setCurrentDirectory(((SwingPreferences) Application.getPreferences()).getDefaultDirectory());
+		chooser.setCurrentDirectory(Application.getPreferences().getDefaultDirectory());
 		chooser.setAccessory(csvOptions);
 
 		// TODO: update this dynamically instead of hard-coded values
@@ -1184,7 +1185,7 @@ public class GeneralOptimizationDialog extends JDialog {
 				", commentCharacter=" + commentCharacter + ", includeHeader=" + includeHeader);
 		
 		try {
-			Writer writer = new BufferedWriter(new FileWriter(file));
+			Writer writer = new BufferedWriter(new FileWriter(file, StandardCharsets.UTF_8));
 			
 			// Write header
 			if (includeHeader) {

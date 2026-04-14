@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import com.opencsv.CSVParser;
@@ -128,7 +129,7 @@ public abstract class RockSimComponentFileLoader {
 		if (is == null) {
 			return;
 		}
-		try (InputStreamReader r = new InputStreamReader(is)) {
+		try (InputStreamReader r = new InputStreamReader(is, StandardCharsets.UTF_8)) {
 
 			// Create the CSV reader. Use comma separator.
 			CSVParser parser = new CSVParserBuilder()
@@ -274,9 +275,12 @@ public abstract class RockSimComponentFileLoader {
 	protected static String toCamelCase(String target) {
 		StringBuilder sb = new StringBuilder();
 		String[] t = target.split("[ ]");
-		if (t != null && t.length > 0) {
+		if (t.length > 0) {
 			for (String aT : t) {
 				String s = aT;
+				if (s.isEmpty()) {
+					continue;
+				}
 				s = s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase();
 				sb.append(s).append(" ");
 			}

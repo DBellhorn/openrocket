@@ -4,8 +4,12 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import info.openrocket.core.logging.SimulationAbort;
+import info.openrocket.core.masscalc.MassCalculator;
+import info.openrocket.core.masscalc.RigidBody;
 import info.openrocket.core.motor.ThrustCurveMotor;
 import info.openrocket.core.simulation.exception.SimulationCalculationException;
+import info.openrocket.core.util.CoordinateIF;
+import info.openrocket.core.util.Coordinate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +31,6 @@ import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.listeners.SimulationListenerHelper;
 import info.openrocket.core.simulation.listeners.system.OptimumCoastListener;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.Pair;
 
@@ -37,7 +40,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 	private static final Logger log = LoggerFactory.getLogger(BasicEventSimulationEngine.class);
 	
 	// TODO: MEDIUM: Allow selecting steppers
-	private final SimulationStepper flightStepper = new RK4SimulationStepper();
+	private       SimulationStepper flightStepper = new RK4SimulationStepper();
 	private final SimulationStepper landingStepper = new BasicLandingStepper();
 	private final SimulationStepper tumbleStepper = new BasicTumbleStepper();
 	private final SimulationStepper groundStepper = new GroundStepper();
@@ -62,7 +65,15 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 
 		// Set up flight data
 		flightData = new FlightData();
-			
+
+		// Choose which Runge Kutta Method to use according to the options.
+		SimulationStepperMethod stepperMethod = simulationConditions.getSimulation().getOptions().getSimulationStepperMethodChoice();
+		switch (stepperMethod) {
+			case RK4 -> flightStepper = new RK4SimulationStepper();
+			case RK6 -> flightStepper = new RK6SimulationStepper();
+			default -> throw new SimulationException("Unsupported simulation stepper method: " + stepperMethod);
+		}
+
 		try {
 			// Set up rocket configuration
 			this.fcid = simulationConditions.getFlightConfigurationID();
@@ -118,7 +129,20 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				flightData.addBranch(dataBranch);
 
 				log.info(">>Starting simulation of branch: " + currentStatus.getFlightDataBranch().getName());
-				simulateLoop(simulationConditions);
+				
+				SimulationException branchException = null;
+				try {
+					SimulationListenerHelper.fireStartSimulationBranch(currentStatus);
+					simulateLoop(simulationConditions);
+				} catch (SimulationException e) {
+					branchException = e;
+					// Exception will propagate after finally block executes
+				} finally {
+					SimulationListenerHelper.fireEndSimulationBranch(currentStatus, branchException);
+					if (branchException != null) {
+						throw branchException;
+					}
+				}
 				
 				dataBranch.immute();
 				log.info(String.format("<<Finished simulating branch: %s    curTime:%s    finTime:%s",
@@ -169,8 +193,8 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 		double previousSimulationTime = currentStatus.getSimulationTime();
 		
 		// Get originating position (in case listener has modified launch position)
-		Coordinate origin = currentStatus.getRocketPosition();
-		Coordinate originVelocity = currentStatus.getRocketVelocity();
+		CoordinateIF origin = currentStatus.getRocketPosition();
+		CoordinateIF originVelocity = currentStatus.getRocketVelocity();
 		
 		try {
 
@@ -179,7 +203,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			// Start the simulation
 			while (handleEvents(simulationConditions)) {
 				// Take the step
-				double oldAlt = currentStatus.getRocketPosition().z;
+				double oldAlt = currentStatus.getRocketPosition().getZ();
 				
 				if (SimulationListenerHelper.firePreStep(currentStatus)) {
 					// Step at most to the next event
@@ -208,33 +232,33 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				if (!currentStatus.isLanded())
 					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.ALTITUDE, currentStatus.getSimulationTime(),
 											 currentStatus.getConfiguration().getRocket(),
-							new Pair<>(oldAlt, currentStatus.getRocketPosition().z)));
+							new Pair<>(oldAlt, currentStatus.getRocketPosition().getZ())));
 				
-				if (currentStatus.getRocketPosition().z > currentStatus.getMaxAlt()) {
-					currentStatus.setMaxAlt(currentStatus.getRocketPosition().z);
+				if (currentStatus.getRocketPosition().getZ() > currentStatus.getMaxAlt()) {
+					currentStatus.setMaxAlt(currentStatus.getRocketPosition().getZ());
 				}
 				
 				// Position relative to start location
-				Coordinate relativePosition = currentStatus.getRocketPosition().sub(origin);
+				CoordinateIF relativePosition = currentStatus.getRocketPosition().sub(origin);
 				
 				// Add appropriate events
 				if (!currentStatus.isLiftoff()) {
 					
 					// Avoid sinking into ground before liftoff
-					if (relativePosition.z < 0) {
+					if (relativePosition.getZ() < 0) {
 						currentStatus.setRocketPosition(origin);
 						relativePosition = Coordinate.ZERO;
 						currentStatus.setRocketVelocity(originVelocity);
 					}
 					// Detect lift-off
-					if (relativePosition.z > 0.02) {
+					if (relativePosition.getZ() > 0.02) {
 						currentStatus.addEvent(new FlightEvent(FlightEvent.Type.LIFTOFF, currentStatus.getSimulationTime()));
 					}
 					
 				} else {
 					
 					// Check ground hit after liftoff
-					if ((currentStatus.getRocketPosition().z < MathUtil.EPSILON) && !currentStatus.isLanded()) {
+					if ((currentStatus.getRocketPosition().getZ() < MathUtil.EPSILON) && !currentStatus.isLanded()) {
 						currentStatus.addEvent(new FlightEvent(FlightEvent.Type.GROUND_HIT, currentStatus.getSimulationTime()));
 
 						// currentStatus.addEvent(new FlightEvent(FlightEvent.Type.SIMULATION_END, currentStatus.getSimulationTime()));
@@ -251,7 +275,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				
 				
 				// Check for apogee
-				if (!currentStatus.isApogeeReached() && currentStatus.getRocketPosition().z < currentStatus.getMaxAlt() - 0.01) {
+				if (!currentStatus.isApogeeReached() && currentStatus.getRocketPosition().getZ() < currentStatus.getMaxAlt() - 0.01) {
 					currentStatus.setMaxAltTime(previousSimulationTime);
 					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.APOGEE, previousSimulationTime,
 							currentStatus.getConfiguration().getRocket()));
@@ -277,7 +301,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 					final double cg = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CG_LOCATION);
 					final double aoa = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_AOA);
 					final double margin =
-						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallMargin();
+						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallAngle() - aoa;
 
 					// large AOA -- stalling.					
 					if (margin < 0) {
@@ -327,12 +351,6 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 		for (event = nextEvent(); event != null; event = nextEvent()) {
 			log.trace("Obtained event from queue:  " + event.toString());
 			log.trace("Remaining EventQueue = " + currentStatus.getEventQueue().toString());
-
-			// If I get an event other than ALTITUDE and SIMULATION_END after I'm on the ground, there's a problem
-			if (currentStatus.isLanded() &&
-				(event.getType() != FlightEvent.Type.ALTITUDE) &&
-				(event.getType() != FlightEvent.Type.SIMULATION_END))
-				currentStatus.addWarning(new Warning.EventAfterLanding(event));
 
 			// Check for motor ignition events, add ignition events to queue
 			for (MotorClusterState state : currentStatus.getActiveMotors() ){
@@ -654,7 +672,13 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				}
 				break;
 			}
-			
+
+			// If I get an event other than ALTITUDE and SIMULATION_END after I'm on the ground, there's a problem
+			if (currentStatus.isLanded() &&
+				(event.getType() != FlightEvent.Type.GROUND_HIT) &&
+				(event.getType() != FlightEvent.Type.ALTITUDE) &&
+				(event.getType() != FlightEvent.Type.SIMULATION_END))
+				currentStatus.addWarning(new Warning.EventAfterLanding(event));
 		}
 
 		if (currentStatus.getSimulationTime() >= simulationConditions.getMaxSimulationTime()) {
@@ -707,29 +731,67 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 	// stages in a simulation branch when the branch starts executing, and
 	// whenever a stage separation occurs
 	private void checkGeometry(SimulationStatus currentStatus) throws SimulationException {
+
+		FlightConfiguration configuration = currentStatus.getConfiguration();
 		
 		// Active stages have total length of 0.
-		if (currentStatus.getConfiguration().getLengthAerodynamic() < MathUtil.EPSILON) {
+		if (configuration.getLengthAerodynamic() < MathUtil.EPSILON) {
 			currentStatus.abortSimulation(SimulationAbort.Cause.ACTIVE_LENGTH_ZERO);
 		}
 
 		// test -- force an exception if we aren't the sustainer
-		// if (currentStatus.getConfiguration().isStageActive(0)) {
+		// if (configuration.isStageActive(0)) {
 		//    throw new SimulationCalculationException("test", currentStatus.getFlightDataBranch());
 		// }
 
 		// Can't calculate stability.  If it's the sustainer we'll abort; if a booster
 		// we'll just transition to tumbling (if it's a booster and under thrust code elsewhere
-		// will abort).
-		if (currentStatus.getSimulationConditions().getAerodynamicCalculator()
-			.getCP(currentStatus.getConfiguration(),
-				   new FlightConditions(currentStatus.getConfiguration()),
-				   new WarningSet()).weight < MathUtil.EPSILON) {
-			if (currentStatus.getConfiguration().isStageActive(0)) {
+		// will abort).  One thing to note about the CP (and CG) calculations here is that this is
+		// executed immediately upon stage separation; the last values recorded for them in the flight
+		// data branch is before separation so we can't just look there for it.
+		CoordinateIF cp = currentStatus.getSimulationConditions().getAerodynamicCalculator()
+			.getCP(configuration, new FlightConditions(configuration), new WarningSet());
+		if (cp.getWeight() < MathUtil.EPSILON) {
+			if (configuration.isStageActive(0)) {
 				currentStatus.abortSimulation(SimulationAbort.Cause.NO_CP);
 			} else {
 				currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
 			}
+		}
+		
+		// see what the aero calculators have to say
+		WarningSet geometryWarnings = new WarningSet();
+		currentStatus.getSimulationConditions().getAerodynamicCalculator().checkGeometry(configuration, configuration.getRocket(),
+																						 geometryWarnings);
+
+		// Under several circumstances to be detailed below, the open airframe warning is more confusing than helpful
+		// so we'll filter it out.
+		if (!geometryWarnings.isEmpty()) {
+			
+			// If it isn't stable, the user has bigger issues than the open from airframe and telling them about it
+			// would only be noise.
+			double cpx = cp.getX();
+			final double cgx = MassCalculator.calculateLaunch( currentStatus.getConfiguration()).getCM().getX();
+			boolean stable = cgx < cpx;
+			
+			// If we're about to deploy a recovery device, we don't care about the open
+			// airframe
+			boolean recoverySoon = false;
+			for (FlightEvent e : currentStatus.getEventQueue()) {
+				if ((e.getType() == FlightEvent.Type.RECOVERY_DEVICE_DEPLOYMENT) &&
+					(e.getTime() < currentStatus.getSimulationTime() + 0.5)) {
+					recoverySoon = true;
+				}
+			}
+			
+			// If we've already deployed a recovery device, we don't care about open airframe
+			boolean recovered = !currentStatus.getDeployedRecoveryDevices().isEmpty();
+			
+			if (!stable || recoverySoon || recovered) {
+				geometryWarnings.filterOut(Warning.OPEN_AIRFRAME_FORWARD);
+			}
+			
+			currentStatus.addWarnings(geometryWarnings);
 		}
 	}
 	
@@ -759,6 +821,9 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 	private FlightData computeCoastTime() throws SimulationException {
 		try {
 			SimulationConditions conds = currentStatus.getSimulationConditions().clone();
+			// Clear user listeners - nested simulation should only use system listeners
+			// to avoid triggering user listeners twice (once for main sim, once for nested)
+			conds.getSimulationListenerList().removeIf(listener -> !listener.isSystemListener());
 			conds.getSimulationListenerList().add(OptimumCoastListener.INSTANCE);
 			BasicEventSimulationEngine coastEngine = new BasicEventSimulationEngine();
 		

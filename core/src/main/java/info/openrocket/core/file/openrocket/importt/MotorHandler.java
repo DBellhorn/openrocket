@@ -1,15 +1,20 @@
 package info.openrocket.core.file.openrocket.importt;
 
+import java.io.InputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 
-import info.openrocket.core.logging.Warning;
-import info.openrocket.core.logging.WarningSet;
+import info.openrocket.core.document.Attachment;
 import info.openrocket.core.file.DocumentLoadingContext;
+import info.openrocket.core.file.motor.GeneralMotorLoader;
 import info.openrocket.core.file.simplesax.AbstractElementHandler;
 import info.openrocket.core.file.simplesax.ElementHandler;
 import info.openrocket.core.file.simplesax.PlainTextHandler;
+import info.openrocket.core.logging.Warning;
+import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.motor.Motor;
+import info.openrocket.core.motor.ThrustCurveMotor;
 
 import org.xml.sax.SAXException;
 
@@ -37,11 +42,60 @@ class MotorHandler extends AbstractElementHandler {
 	}
 
 	/**
-	 * Return the motor to use, or null.
+	 * Resolve the {@link Motor} for this {@code <motor>} element.
+	 * <p>
+	 * Preference order:
+	 * <ol>
+	 *   <li>Lookup via {@link DocumentLoadingContext#getMotorFinder()} (typically the motor database).</li>
+	 *   <li>Embedded .rse file in the {@code thrustcurves/} directory of the .ork zip archive.</li>
+	 * </ol>
+	 *
+	 * @param warnings warnings sink
+	 * @return the resolved motor, or {@code null} if not found/invalid
 	 */
 	public Motor getMotor(WarningSet warnings) {
-		return context.getMotorFinder().findMotor(type, manufacturer, designation, Double.NaN, Double.NaN, digest,
-				warnings);
+		// First try to locate an equivalent motor in the motor database.
+		WarningSet databaseWarnings = new WarningSet();
+		Motor databaseMotor = context.getMotorFinder().findMotor(type, manufacturer, designation, Double.NaN, Double.NaN, digest,
+				databaseWarnings);
+		if (databaseMotor != null) {
+			warnings.addAll(databaseWarnings);
+			return databaseMotor;
+		}
+
+		// Try loading from embedded .rse file in the zip archive.
+		if (digest != null && !digest.isEmpty()) {
+			Motor zipMotor = loadMotorFromZip(digest);
+			if (zipMotor != null) {
+				return zipMotor;
+			}
+		}
+
+		// Nothing worked: surface any database lookup warnings (e.g. missing motor).
+		warnings.addAll(databaseWarnings);
+		return null;
+	}
+
+	/**
+	 * Attempt to load a motor from a {@code thrustcurves/<digest>.rse} entry in the .ork zip archive.
+	 *
+	 * @param motorDigest the motor digest used as the filename
+	 * @return the loaded motor, or {@code null} if not found or not parseable
+	 */
+	private Motor loadMotorFromZip(String motorDigest) {
+		try {
+			Attachment attachment = context.getAttachmentFactory().getAttachment("thrustcurves/" + motorDigest + ".rse");
+			try (InputStream is = attachment.getBytes()) {
+				GeneralMotorLoader loader = new GeneralMotorLoader();
+				List<ThrustCurveMotor.Builder> motors = loader.load(is, motorDigest + ".rse");
+				if (!motors.isEmpty()) {
+					return motors.get(0).build();
+				}
+			}
+		} catch (Exception e) {
+			// Entry not found or parse error — fall through.
+		}
+		return null;
 	}
 
 	/**
